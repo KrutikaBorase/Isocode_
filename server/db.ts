@@ -53,6 +53,15 @@ db.exec(`
     entity_id INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS fee_payments (
+    id INTEGER PRIMARY KEY,
+    student_id INTEGER NOT NULL REFERENCES students(id),
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    mode TEXT NOT NULL CHECK (mode = 'test'),
+    receipt_no TEXT NOT NULL UNIQUE,
+    paid_by INTEGER NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS marks_student_subject ON marks(student_id, subject)')

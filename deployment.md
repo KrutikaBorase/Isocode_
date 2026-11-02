@@ -54,7 +54,11 @@ These are synthetic demo accounts only. Replace them with managed identity befor
 
 ## Scope and known limits
 
-This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot, attendance marking/sync, marks moderation lock, fee dues, the fixed-rule at-risk flag, and a constrained read-only assistant. Payment links, Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
+This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot, attendance marking/sync, marks moderation lock, fee dues with a test-mode receipt transaction, the fixed-rule at-risk flag, and a constrained read-only assistant. Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
+
+## Test-mode fee payments
+
+The fee screen is intentionally explicit that payments are simulated. An office-admin account can record the full outstanding amount; the API validates the roll number and amount, atomically reduces the due, creates a `TEST-...` receipt, and writes an audit event. It does not contact a bank or payment provider. The endpoint is role-protected and rejects overpayments.
 
 ## Offline attendance
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -122,6 +122,8 @@ function App() {
   const [saved, setSaved] = useState(false)
   const [syncError, setSyncError] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<Array<{ roll_no: string; name: string; programme: string }>>([])
 
   const atRisk = useMemo(() => students.filter(isAtRisk), [])
 
@@ -138,6 +140,18 @@ function App() {
     syncQueuedAttendance()
     return () => window.removeEventListener('online', syncQueuedAttendance)
   }, [token])
+
+  useEffect(() => {
+    if (!token || search.trim().length < 2) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      apiRequest<{ students: Array<{ roll_no: string; name: string; programme: string }> }>(`/students?search=${encodeURIComponent(search.trim())}`, {}, token)
+        .then((result) => setSearchResults(result.students))
+        .catch(() => setSearchResults([]))
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [search, token])
 
   if (!signedIn) return <Login onLogin={(nextToken) => { setToken(nextToken); setSignedIn(true) }} />
 
@@ -186,7 +200,7 @@ function App() {
       </aside>
       {mobileNav && <button className="mobile-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-box"><Search size={16} /><input placeholder="Search students..." aria-label="Search students" /></div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => setSignedIn(false)} title="Sign out"><LogOut size={18} /></button></div></header>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('overview') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => setSignedIn(false)} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
           {view === 'overview' && <Overview atRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <Attendance attendance={attendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
@@ -288,17 +302,37 @@ type Due = { roll: string; name: string; programme: string; year: number; fee_du
 function LiveFees({ token }: { token: string }) {
   const [dues, setDues] = useState<Due[]>([])
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [paymentMessage, setPaymentMessage] = useState('')
+  const [paying, setPaying] = useState('')
 
-  useEffect(() => {
-    apiRequest<{ dues: Due[] }>('/fees/dues', {}, token)
+  const loadDues = useCallback(async () => {
+    await apiRequest<{ dues: Due[] }>('/fees/dues', {}, token)
       .then((result) => setDues(result.dues))
       .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Fee dues could not be loaded.'))
       .finally(() => setLoading(false))
   }, [token])
 
-  return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Payment links are in test mode. Receipts are generated after a successful mock payment.</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div><button className="secondary-button" onClick={() => setMessage(`Test reminder queued for ${due.name}.`)}>Send reminder</button><button className="row-action"><MoreHorizontal size={17} /></button></div>)}{message && <div className="empty-note"><Check size={18} /> {message}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+  useEffect(() => {
+    void loadDues()
+  }, [loadDues])
+
+  async function recordTestPayment(due: Due) {
+    setPaying(due.roll)
+    setPaymentMessage('')
+    setError('')
+    try {
+      const result = await apiRequest<{ receiptNo: string; remainingDue: number }>('/fees/payments', { method: 'POST', body: JSON.stringify({ roll: due.roll, amount: due.fee_due }) }, token)
+      setPaymentMessage(`Test payment recorded. Receipt ${result.receiptNo}. Remaining due: ₹${result.remainingDue.toLocaleString('en-IN')}.`)
+      await loadDues()
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Payment could not be recorded.')
+    } finally {
+      setPaying('')
+    }
+  }
+
+  return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Test mode only: record a full mock payment to generate a receipt and clear this due.</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div><button className="secondary-button" disabled={paying === due.roll} onClick={() => recordTestPayment(due)}>{paying === due.roll ? 'Recording…' : 'Record test payment'}</button><button className="row-action"><MoreHorizontal size={17} /></button></div>)}{paymentMessage && <div className="empty-note"><Check size={18} /> {paymentMessage}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
 }
 
 type AssistantResponse = { answer: string; filters: string[]; rowCount: number; rows: Array<Record<string, string | number>>; readOnly: boolean }

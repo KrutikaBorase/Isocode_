@@ -145,6 +145,31 @@ app.get('/api/fees/dues', auth, (_request, response) => {
   response.json({ dues: db.prepare('SELECT roll_no as roll, name, programme, year, fee_due FROM students WHERE fee_due > 0 ORDER BY fee_due DESC').all() })
 })
 
+const paymentSchema = z.object({
+  roll: z.string().min(1).max(40),
+  amount: z.number().int().positive().max(10000000),
+})
+app.post('/api/fees/payments', auth, requireRole('office_admin'), (request: RequestWithUser, response) => {
+  const parsed = paymentSchema.safeParse(request.body)
+  if (!parsed.success) return response.status(400).json({ error: 'Enter a valid payment amount.' })
+  const student = db.prepare('SELECT id, name, fee_due FROM students WHERE roll_no = ?').get(parsed.data.roll) as { id: number; name: string; fee_due: number } | undefined
+  if (!student) return response.status(404).json({ error: 'Student was not found.' })
+  if (parsed.data.amount > student.fee_due) return response.status(400).json({ error: 'Payment cannot be greater than the outstanding due.' })
+
+  const receiptNo = `TEST-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}-${String(Date.now()).slice(-6)}`
+  const transaction = db.transaction(() => {
+    db.prepare('UPDATE students SET fee_due = fee_due - ? WHERE id = ?').run(parsed.data.amount, student.id)
+    db.prepare('INSERT INTO fee_payments (student_id, amount, mode, receipt_no, paid_by) VALUES (?, ?, ?, ?, ?)').run(student.id, parsed.data.amount, 'test', receiptNo, request.user!.id)
+    db.prepare('INSERT INTO audit_log (actor_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').run(request.user!.id, 'fee_payment.recorded', 'student', student.id)
+  })
+  try {
+    transaction()
+    response.status(201).json({ receiptNo, student: student.name, amount: parsed.data.amount, remainingDue: student.fee_due - parsed.data.amount, mode: 'test' })
+  } catch {
+    response.status(500).json({ error: 'Payment could not be recorded. No balance was changed.' })
+  }
+})
+
 const assistantSchema = z.object({ question: z.string().trim().min(3).max(240) })
 app.post('/api/assistant/ask', auth, (request: RequestWithUser, response) => {
   const parsed = assistantSchema.safeParse(request.body)

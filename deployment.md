@@ -43,6 +43,8 @@ Required environment variable names:
 - `CLIENT_ORIGIN` — allowed frontend origin for CORS
 - `JWT_SECRET` — production signing secret
 
+The API exposes `GET /api/health` for deployment health checks. In production, the server refuses to start unless `JWT_SECRET` is provided. — production signing secret
+
 Do not commit values for these variables.
 
 ## Demo accounts

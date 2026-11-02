@@ -7,10 +7,18 @@ import db from './db.js'
 
 const app = express()
 const port = Number(process.env.PORT ?? 4000)
-const jwtSecret = process.env.JWT_SECRET ?? 'development-only-secret-change-me'
+const configuredJwtSecret = process.env.JWT_SECRET
+if (process.env.NODE_ENV === 'production' && !configuredJwtSecret) {
+  throw new Error('JWT_SECRET must be configured in production.')
+}
+const jwtSecret = configuredJwtSecret ?? 'development-only-secret-change-me'
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173' }))
 app.use(express.json({ limit: '100kb' }))
+
+app.get('/api/health', (_request, response) => {
+  response.json({ status: 'ok', service: 'asteria-api' })
+})
 
 type AuthUser = { id: number; email: string; name: string; role: 'faculty' | 'office_admin'; campus: string }
 type RequestWithUser = express.Request & { user?: AuthUser }

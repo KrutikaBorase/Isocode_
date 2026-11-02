@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import bcrypt from 'bcryptjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -54,14 +55,16 @@ db.exec(`
   );
 `)
 
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS marks_student_subject ON marks(student_id, subject)')
+
 const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }
 if (userCount.count === 0) {
   const seed = db.transaction(() => {
     db.prepare('INSERT INTO users (email, name, role, campus, password_hash) VALUES (?, ?, ?, ?, ?)').run(
-      'faculty@companya.edu', 'Riya Sharma', 'faculty', 'Engineering College', 'demo1234',
+      'faculty@companya.edu', 'Riya Sharma', 'faculty', 'Engineering College', bcrypt.hashSync('demo1234', 12),
     )
     db.prepare('INSERT INTO users (email, name, role, campus, password_hash) VALUES (?, ?, ?, ?, ?)').run(
-      'admin@companya.edu', 'Arjun Das', 'office_admin', 'Engineering College', 'admin1234',
+      'admin@companya.edu', 'Arjun Das', 'office_admin', 'Engineering College', bcrypt.hashSync('admin1234', 12),
     )
     const insertStudent = db.prepare('INSERT INTO students (roll_no, name, programme, year, attendance, internal_marks, fee_due) VALUES (?, ?, ?, ?, ?, ?, ?)')
     insertStudent.run('ENG-24-CSE-0412', 'Subhashree Mohanty', 'B.Tech CSE', 2, 81.5, 33, 0)
@@ -70,5 +73,9 @@ if (userCount.count === 0) {
   })
   seed()
 }
+
+const legacyUsers = db.prepare("SELECT id, password_hash FROM users WHERE password_hash NOT LIKE '$2%'").all() as { id: number; password_hash: string }[]
+const updatePassword = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+for (const user of legacyUsers) updatePassword.run(bcrypt.hashSync(user.password_hash, 12), user.id)
 
 export default db

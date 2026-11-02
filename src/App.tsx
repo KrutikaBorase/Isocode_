@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -165,8 +165,8 @@ function App() {
         <div className="page-content">
           {view === 'overview' && <Overview atRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <Attendance attendance={attendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
-          {view === 'marks' && <Marks token={token} />}
-          {view === 'fees' && <Fees token={token} />}
+          {view === 'marks' && <LiveMarks token={token} />}
+          {view === 'fees' && <LiveFees token={token} />}
         </div>
       </main>
     </div>
@@ -214,5 +214,68 @@ function Marks(_props: { token: string }) {
 function Fees(_props: { token: string }) {
   return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="B.Tech CSE · Year 2 · 3 students in sample view" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value="₹45,000" detail="1 student pending" trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Payment links are in test mode. Receipts are generated after a successful mock payment.</p><div className="due-card"><span className="avatar avatar-soft">AP</span><div className="student-copy"><strong>Ankit Panda</strong><small>ENG-24-ME-0177 · B.Tech Mechanical · Year 2</small></div><div className="due-amount"><small>Total due</small><strong>₹45,000</strong></div><button className="secondary-button">Send reminder</button><button className="row-action"><MoreHorizontal size={17} /></button></div><div className="empty-note"><Check size={18} /> 2 students have no outstanding dues.</div></section></>
 }
+
+type LiveMark = { roll: string; name: string; assignment: number | null; quiz: number | null; mid_sem: number | null; total: number | null; locked_at: string | null }
+
+function LiveMarks({ token }: { token: string }) {
+  const [records, setRecords] = useState<LiveMark[]>([])
+  const [locked, setLocked] = useState(false)
+  const [moderated, setModerated] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest<{ marks: LiveMark[] }>('/marks?subject=Data%20Structures', {}, token)
+      .then((result) => setRecords(result.marks))
+      .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Marks could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [token])
+
+  function updateRecord(roll: string, field: 'assignment' | 'quiz' | 'mid_sem', value: string) {
+    const numericValue = Number(value)
+    if (!Number.isInteger(numericValue)) return
+    setRecords((current) => current.map((record) => record.roll === roll ? { ...record, [field]: numericValue, total: (field === 'assignment' ? numericValue : record.assignment ?? 0) + (field === 'quiz' ? numericValue : record.quiz ?? 0) + (field === 'mid_sem' ? numericValue : record.mid_sem ?? 0) } : record))
+  }
+
+  async function lockRecords() {
+    setSaving(true)
+    setError('')
+    try {
+      await apiRequest('/marks/lock', {
+        method: 'POST',
+        body: JSON.stringify({ subject: 'Data Structures', records: records.map((record) => ({ roll: record.roll, assignment: record.assignment ?? 0, quiz: record.quiz ?? 0, midSem: record.mid_sem ?? 0 })) }),
+      }, token)
+      setLocked(true)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Marks could not be locked.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return <><PageHeader eyebrow="Internal marks · Semester 4" title="Data Structures" description="B.Tech CSE · Year 2 · Total marks: 40" action={<span className={`lock-status ${locked ? 'is-locked' : ''}`}>{locked ? <ShieldCheck size={16} /> : <FileText size={16} />}{locked ? 'Moderation locked' : 'Draft'}</span>} /><div className="marks-toolbar"><div className="component-tabs"><button className="active">Internal assessment 1</button><button>Internal assessment 2</button><button>Practical</button></div><button className="secondary-button"><FileText size={16} /> Export marksheet</button></div><section className="panel marks-panel"><div className="marks-notice"><Sparkles size={17} /><span><strong>Moderation check</strong> Review the highlighted scores before locking this assessment. Locked marks are audit-trailed and cannot be edited.</span></div>{loading ? <div className="empty-note">Loading marks…</div> : <div className="table-wrap"><table><thead><tr><th>Student</th><th>Assignment <small>/ 10</small></th><th>Quiz <small>/ 10</small></th><th>Mid-sem <small>/ 20</small></th><th>Total <small>/ 40</small></th><th /></tr></thead><tbody>{records.map((record) => <tr key={record.roll}><td><div className="table-student"><span className="avatar avatar-small">{record.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{record.name}</strong><small>{record.roll}</small></span></div></td><td><input className="mark-input" type="number" min="0" max="10" disabled={locked || Boolean(record.locked_at)} value={record.assignment ?? ''} onChange={(event) => updateRecord(record.roll, 'assignment', event.target.value)} /></td><td><input className="mark-input" type="number" min="0" max="10" disabled={locked || Boolean(record.locked_at)} value={record.quiz ?? ''} onChange={(event) => updateRecord(record.roll, 'quiz', event.target.value)} /></td><td><input className="mark-input" type="number" min="0" max="20" disabled={locked || Boolean(record.locked_at)} value={record.mid_sem ?? ''} onChange={(event) => updateRecord(record.roll, 'mid_sem', event.target.value)} /></td><td><strong className={(record.total ?? 0) < 24 ? 'table-risk' : ''}>{record.total ?? '—'}</strong></td><td>{(record.total ?? 0) < 24 && <span className="flag-pill">Review</span>}</td></tr>)}</tbody></table></div>}<div className="marks-footer"><div>{error && <span className="form-error"><AlertTriangle size={15} /> {error}</span>}<label className="check-label"><input type="checkbox" checked={moderated} onChange={(event) => setModerated(event.target.checked)} disabled={locked} /><span>I have reviewed the moderation flags and totals</span></label></div><button className="primary-button" disabled={!moderated || locked || saving || loading} onClick={lockRecords}>{saving ? 'Locking…' : locked ? 'Locked for moderation' : 'Lock marks'} <ShieldCheck size={16} /></button></div></section></>
+}
+
+type Due = { roll: string; name: string; programme: string; year: number; fee_due: number }
+
+function LiveFees({ token }: { token: string }) {
+  const [dues, setDues] = useState<Due[]>([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest<{ dues: Due[] }>('/fees/dues', {}, token)
+      .then((result) => setDues(result.dues))
+      .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Fee dues could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [token])
+
+  return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Payment links are in test mode. Receipts are generated after a successful mock payment.</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div><button className="secondary-button" onClick={() => setMessage(`Test reminder queued for ${due.name}.`)}>Send reminder</button><button className="row-action"><MoreHorizontal size={17} /></button></div>)}{message && <div className="empty-note"><Check size={18} /> {message}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+}
+
+void Marks
+void Fees
 
 export default App

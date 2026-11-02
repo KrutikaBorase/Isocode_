@@ -23,7 +23,7 @@ Requirements: Node.js 20+ and npm 10+.
    ```
 5. Open `http://localhost:5173`.
 
-The API creates a local SQLite database (`asteria.db`) and seeds the sample campus data on first start. The database is intentionally ignored by Git.
+The API creates a local SQLite database (`asteria.db`) and seeds the sample campus data on first start. Demo passwords are stored as bcrypt hashes. The database is intentionally ignored by Git.
 
 For a production build:
 

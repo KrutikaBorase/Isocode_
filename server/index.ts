@@ -1,5 +1,6 @@
 import cors from 'cors'
 import express from 'express'
+import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { z } from 'zod'
 import db from './db.js'
@@ -37,7 +38,7 @@ app.post('/api/auth/login', (request, response) => {
   const parsed = credentialsSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Enter a valid email and password.' })
   const user = db.prepare('SELECT id, email, name, role, campus, password_hash FROM users WHERE email = ?').get(parsed.data.email) as (AuthUser & { password_hash: string }) | undefined
-  if (!user || user.password_hash !== parsed.data.password) return response.status(401).json({ error: 'Email or password is incorrect.' })
+  if (!user || !bcrypt.compareSync(parsed.data.password, user.password_hash)) return response.status(401).json({ error: 'Email or password is incorrect.' })
   const { password_hash: _password, ...safeUser } = user
   const token = jwt.sign(safeUser, jwtSecret, { expiresIn: '8h' })
   response.json({ token, user: safeUser })
@@ -82,6 +83,7 @@ app.post('/api/attendance/sync', auth, (request: RequestWithUser, response) => {
       const student = findStudent.get(record.roll) as { id: number } | undefined
       if (!student) throw new Error(`Unknown student roll number: ${record.roll}`)
       save.run(student.id, parsed.data.subject, parsed.data.date, record.status, request.user!.id)
+      db.prepare('INSERT INTO audit_log (actor_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').run(request.user!.id, 'attendance.synced', 'attendance', student.id)
     }
   })
   try {
@@ -114,7 +116,12 @@ app.post('/api/marks/lock', auth, requireRole('office_admin', 'faculty'), (reque
   const existing = db.prepare('SELECT locked_at FROM marks WHERE student_id = ? AND subject = ?')
   const save = db.prepare(`
     INSERT INTO marks (student_id, subject, assignment, quiz, mid_sem, locked_at, locked_by) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
-    ON CONFLICT(id) DO UPDATE SET assignment = excluded.assignment
+    ON CONFLICT(student_id, subject) DO UPDATE SET
+      assignment = excluded.assignment,
+      quiz = excluded.quiz,
+      mid_sem = excluded.mid_sem,
+      locked_at = excluded.locked_at,
+      locked_by = excluded.locked_by
   `)
   const transaction = db.transaction(() => {
     for (const record of parsed.data.records) {
@@ -123,6 +130,7 @@ app.post('/api/marks/lock', auth, requireRole('office_admin', 'faculty'), (reque
       const locked = existing.get(student.id, parsed.data.subject) as { locked_at: string | null } | undefined
       if (locked?.locked_at) throw new Error('Some marks are already locked and cannot be changed.')
       save.run(student.id, parsed.data.subject, record.assignment, record.quiz, record.midSem, request.user!.id)
+      db.prepare('INSERT INTO audit_log (actor_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').run(request.user!.id, 'marks.locked', 'marks', student.id)
     }
   })
   try {

@@ -54,7 +54,7 @@ These are synthetic demo accounts only. Replace them with managed identity befor
 
 ## Scope and known limits
 
-This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot, attendance marking/sync, marks moderation lock, fee dues with a test-mode receipt transaction, the fixed-rule at-risk flag, and a constrained read-only assistant. Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
+This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot and directory, attendance marking/reload/sync, marks moderation lock, fee dues with a test-mode receipt transaction, the fixed-rule at-risk flag, and a constrained read-only assistant. Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
 
 ## Test-mode fee payments
 

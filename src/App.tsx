@@ -22,7 +22,7 @@ import {
 import './App.css'
 import { isAtRisk } from './risk'
 
-type View = 'overview' | 'attendance' | 'marks' | 'fees'
+type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students'
 type AttendanceStatus = 'present' | 'absent' | 'late'
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
 const ATTENDANCE_QUEUE_KEY = 'asteria:attendance-queue'
@@ -48,6 +48,7 @@ const navItems: { id: View; label: string; icon: typeof Home }[] = [
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck },
   { id: 'marks', label: 'Internal marks', icon: BookOpen },
   { id: 'fees', label: 'Fee dues', icon: CircleDollarSign },
+  { id: 'students', label: 'Students', icon: Users },
 ]
 
 const initialAttendance: Record<string, AttendanceStatus> = {
@@ -189,7 +190,7 @@ function App() {
             <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => { setView(id); setMobileNav(false) }}><Icon size={18} /><span>{label}</span>{id === 'attendance' && <span className="nav-badge">3</span>}</button>
           ))}
           <p className="nav-label nav-label-spaced">Manage</p>
-          <button className="nav-item"><Users size={18} /><span>Students</span></button>
+          <button className={`nav-item ${view === 'students' ? 'active' : ''}`} onClick={() => { setView('students'); setMobileNav(false) }}><Users size={18} /><span>Students</span></button>
           <button className="nav-item"><CalendarDays size={18} /><span>Academic calendar</span></button>
           <button className="nav-item"><SlidersHorizontal size={18} /><span>Masters</span></button>
         </nav>
@@ -200,12 +201,13 @@ function App() {
       </aside>
       {mobileNav && <button className="mobile-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('overview') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => setSignedIn(false)} title="Sign out"><LogOut size={18} /></button></div></header>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => setSignedIn(false)} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
           {view === 'overview' && <Overview atRisk={atRisk} onNavigate={setView} />}
-          {view === 'attendance' && <Attendance attendance={attendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
+          {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
           {view === 'marks' && <LiveMarks token={token} />}
           {view === 'fees' && <LiveFees token={token} />}
+          {view === 'students' && <LiveStudents token={token} />}
         </div>
         {assistantOpen && <AssistantPanel token={token} onClose={() => setAssistantOpen(false)} />}
       </main>
@@ -236,6 +238,44 @@ function Schedule({ time, subject, group, room, active }: { time: string; subjec
 
 function StudentTable() {
   return <div className="table-wrap"><table><thead><tr><th>Student</th><th>Programme</th><th>Attendance</th><th>Internal marks</th><th>Fee due</th><th /></tr></thead><tbody>{students.map((student) => <tr key={student.roll}><td><div className="table-student"><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll}</small></span></div></td><td>{student.programme}<small>Year {student.year}</small></td><td><span className={student.attendance < 75 ? 'table-risk' : ''}>{student.attendance}%</span></td><td>{student.marks}/40</td><td><span className={student.dues ? 'table-risk' : 'paid'}>{student.dues ? `₹${student.dues.toLocaleString('en-IN')}` : 'Paid'}</span></td><td><button className="row-action"><MoreHorizontal size={17} /></button></td></tr>)}</tbody></table></div>
+}
+
+function LiveAttendance({ token, attendance, onLoad, onMark, saved, syncError, onSave }: { token: string; attendance: Record<string, AttendanceStatus>; onLoad: (attendance: Record<string, AttendanceStatus>) => void; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    apiRequest<{ attendance: Array<{ roll: string; status: AttendanceStatus | null }> }>('/attendance?subject=Data%20Structures&date=2025-02-03', {}, token)
+      .then((result) => {
+        const next = { ...initialAttendance }
+        for (const record of result.attendance) if (record.status) next[record.roll] = record.status
+        onLoad(next)
+      })
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Latest attendance could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [token, onLoad])
+
+  if (loading) return <div className="panel loading-card"><div className="loading-pulse" /><strong>Loading the class register…</strong><span>Checking the latest synced attendance.</span></div>
+  return <Attendance attendance={attendance} onMark={onMark} saved={saved} syncError={loadError || syncError} onSave={onSave} />
+}
+
+type DirectoryStudent = { id: number; roll_no: string; name: string; programme: string; year: number; attendance: number; internal_marks: number; fee_due: number }
+
+function LiveStudents({ token }: { token: string }) {
+  const [records, setRecords] = useState<DirectoryStudent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [filter, setFilter] = useState('')
+
+  useEffect(() => {
+    apiRequest<{ students: DirectoryStudent[] }>('/students', {}, token)
+      .then((result) => setRecords(result.students))
+      .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Students could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [token])
+
+  const filtered = records.filter((student) => `${student.name} ${student.roll_no} ${student.programme}`.toLowerCase().includes(filter.toLowerCase()))
+  return <><PageHeader eyebrow="Directory · Engineering College" title="Students" description="Searchable student records for the current campus" action={<button className="secondary-button"><FileText size={17} /> Export list</button>} /><section className="panel students-panel"><div className="directory-toolbar"><div><p className="eyebrow">Campus directory</p><h2>{records.length} students in sample data</h2></div><div className="search-box directory-search"><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter this list..." aria-label="Filter student directory" /></div></div>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading students…</div> : <div className="table-wrap directory-table"><table><thead><tr><th>Student</th><th>Programme</th><th>Year</th><th>Attendance</th><th>Internal marks</th><th>Fee due</th></tr></thead><tbody>{filtered.map((student) => <tr key={student.roll_no}><td><div className="table-student"><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no}</small></span></div></td><td>{student.programme}</td><td>{student.year}</td><td><span className={student.attendance < 75 ? 'table-risk' : ''}>{student.attendance}%</span></td><td><span className={student.internal_marks < 24 ? 'table-risk' : ''}>{student.internal_marks}/40</span></td><td><span className={student.fee_due ? 'table-risk' : 'paid'}>{student.fee_due ? `₹${student.fee_due.toLocaleString('en-IN')}` : 'Paid'}</span></td></tr>)}</tbody></table></div>}{!loading && filtered.length === 0 && <div className="empty-note">No students match “{filter}”.</div>}</section></>
 }
 
 function Attendance({ attendance, onMark, saved, syncError, onSave }: { attendance: Record<string, AttendanceStatus>; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {

@@ -25,6 +25,7 @@ import { isAtRisk } from './risk'
 type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit'
 type AttendanceStatus = 'present' | 'absent' | 'late'
 type SessionUser = { name: string; role: 'faculty' | 'office_admin'; campus: string }
+type ApiStatus = 'checking' | 'online' | 'offline'
 type DashboardData = {
   summary: { students: number; average_attendance: number; average_marks: number; outstanding_fees: number; at_risk_count: number }
   atRisk: Array<{ roll: string; name: string; programme: string; year: number; attendance: number; marks: number; dues: number }>
@@ -143,6 +144,7 @@ function App() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Array<{ roll_no: string; name: string; programme: string }>>([])
+  const [apiStatus, setApiStatus] = useState<ApiStatus>('checking')
 
   const atRisk = useMemo(() => students.filter(isAtRisk), [])
 
@@ -171,6 +173,22 @@ function App() {
     }, 180)
     return () => window.clearTimeout(timer)
   }, [search, token])
+
+  useEffect(() => {
+    if (!token) return
+    let active = true
+    const checkApi = () => {
+      apiRequest<{ status: string }>('/health')
+        .then(() => { if (active) setApiStatus('online') })
+        .catch(() => { if (active) setApiStatus('offline') })
+    }
+    checkApi()
+    const interval = window.setInterval(checkApi, 30000)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+    }
+  }, [token])
 
   if (!signedIn || !currentUser) return <Login onLogin={(nextToken, user) => { setToken(nextToken); setCurrentUser(user); setSignedIn(true) }} />
 
@@ -220,7 +238,7 @@ function App() {
       </aside>
       {mobileNav && <button className="mobile-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken('') }} title="Sign out"><LogOut size={18} /></button></div></header>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><span className={`api-status ${apiStatus}`}><span className="api-status-dot" />{apiStatus === 'checking' ? 'Checking connection' : apiStatus === 'online' ? 'System online' : 'Offline mode'}</span><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken(''); setApiStatus('checking') }} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
           {view === 'overview' && <LiveOverview token={token} fallbackAtRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}

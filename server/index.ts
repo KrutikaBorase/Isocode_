@@ -145,6 +145,15 @@ app.get('/api/fees/dues', auth, (_request, response) => {
   response.json({ dues: db.prepare('SELECT roll_no as roll, name, programme, year, fee_due FROM students WHERE fee_due > 0 ORDER BY fee_due DESC').all() })
 })
 
+app.get('/api/audit', auth, requireRole('office_admin'), (_request, response) => {
+  const rows = db.prepare(`
+    SELECT a.action, a.entity, a.entity_id, a.created_at, u.name as actor
+    FROM audit_log a JOIN users u ON u.id = a.actor_id
+    ORDER BY a.created_at DESC, a.id DESC LIMIT 50
+  `).all()
+  response.json({ entries: rows })
+})
+
 const paymentSchema = z.object({
   roll: z.string().min(1).max(40),
   amount: z.number().int().positive().max(10000000),

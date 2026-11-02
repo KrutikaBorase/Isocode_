@@ -22,8 +22,9 @@ import {
 import './App.css'
 import { isAtRisk } from './risk'
 
-type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students'
+type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit'
 type AttendanceStatus = 'present' | 'absent' | 'late'
+type SessionUser = { name: string; role: 'faculty' | 'office_admin'; campus: string }
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
 const ATTENDANCE_QUEUE_KEY = 'asteria:attendance-queue'
 
@@ -48,7 +49,6 @@ const navItems: { id: View; label: string; icon: typeof Home }[] = [
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck },
   { id: 'marks', label: 'Internal marks', icon: BookOpen },
   { id: 'fees', label: 'Fee dues', icon: CircleDollarSign },
-  { id: 'students', label: 'Students', icon: Users },
 ]
 
 const initialAttendance: Record<string, AttendanceStatus> = {
@@ -57,7 +57,7 @@ const initialAttendance: Record<string, AttendanceStatus> = {
   'MBA-25-0093': 'present',
 }
 
-function Login({ onLogin }: { onLogin: (token: string) => void }) {
+function Login({ onLogin }: { onLogin: (token: string, user: SessionUser) => void }) {
   const [email, setEmail] = useState('faculty@companya.edu')
   const [password, setPassword] = useState('demo1234')
   const [error, setError] = useState('')
@@ -72,8 +72,8 @@ function Login({ onLogin }: { onLogin: (token: string) => void }) {
     setLoading(true)
     setError('')
     try {
-      const result = await apiRequest<{ token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
-      onLogin(result.token)
+      const result = await apiRequest<{ token: string; user: SessionUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+      onLogin(result.token, result.user)
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : 'Sign-in failed.')
     } finally {
@@ -117,6 +117,7 @@ function Login({ onLogin }: { onLogin: (token: string) => void }) {
 function App() {
   const [signedIn, setSignedIn] = useState(false)
   const [token, setToken] = useState('')
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null)
   const [view, setView] = useState<View>('overview')
   const [mobileNav, setMobileNav] = useState(false)
   const [attendance, setAttendance] = useState(initialAttendance)
@@ -154,7 +155,7 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [search, token])
 
-  if (!signedIn) return <Login onLogin={(nextToken) => { setToken(nextToken); setSignedIn(true) }} />
+  if (!signedIn || !currentUser) return <Login onLogin={(nextToken, user) => { setToken(nextToken); setCurrentUser(user); setSignedIn(true) }} />
 
   function markAttendance(roll: string, status: AttendanceStatus) {
     setAttendance((current) => ({ ...current, [roll]: status }))
@@ -191,6 +192,7 @@ function App() {
           ))}
           <p className="nav-label nav-label-spaced">Manage</p>
           <button className={`nav-item ${view === 'students' ? 'active' : ''}`} onClick={() => { setView('students'); setMobileNav(false) }}><Users size={18} /><span>Students</span></button>
+          {currentUser.role === 'office_admin' && <button className={`nav-item ${view === 'audit' ? 'active' : ''}`} onClick={() => { setView('audit'); setMobileNav(false) }}><ShieldCheck size={18} /><span>Audit trail</span></button>}
           <button className="nav-item"><CalendarDays size={18} /><span>Academic calendar</span></button>
           <button className="nav-item"><SlidersHorizontal size={18} /><span>Masters</span></button>
         </nav>
@@ -206,8 +208,9 @@ function App() {
           {view === 'overview' && <Overview atRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
           {view === 'marks' && <LiveMarks token={token} />}
-          {view === 'fees' && <LiveFees token={token} />}
+          {view === 'fees' && <LiveFees token={token} canRecordPayments={currentUser.role === 'office_admin'} />}
           {view === 'students' && <LiveStudents token={token} />}
+          {view === 'audit' && currentUser.role === 'office_admin' && <AuditTrail token={token} />}
         </div>
         {assistantOpen && <AssistantPanel token={token} onClose={() => setAssistantOpen(false)} />}
       </main>
@@ -339,7 +342,7 @@ function LiveMarks({ token }: { token: string }) {
 
 type Due = { roll: string; name: string; programme: string; year: number; fee_due: number }
 
-function LiveFees({ token }: { token: string }) {
+function LiveFees({ token, canRecordPayments }: { token: string; canRecordPayments: boolean }) {
   const [dues, setDues] = useState<Due[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -372,7 +375,24 @@ function LiveFees({ token }: { token: string }) {
     }
   }
 
-  return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Test mode only: record a full mock payment to generate a receipt and clear this due.</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div><button className="secondary-button" disabled={paying === due.roll} onClick={() => recordTestPayment(due)}>{paying === due.roll ? 'Recording…' : 'Record test payment'}</button><button className="row-action"><MoreHorizontal size={17} /></button></div>)}{paymentMessage && <div className="empty-note"><Check size={18} /> {paymentMessage}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+  return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">{canRecordPayments ? 'Test mode only: record a full mock payment to generate a receipt and clear this due.' : 'You can view dues, but only office admins can record payments.'}</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div>{canRecordPayments && <button className="secondary-button" disabled={paying === due.roll} onClick={() => recordTestPayment(due)}>{paying === due.roll ? 'Recording…' : 'Record test payment'}</button>}<button className="row-action"><MoreHorizontal size={17} /></button></div>)}{paymentMessage && <div className="empty-note"><Check size={18} /> {paymentMessage}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+}
+
+type AuditEntry = { action: string; entity: string; entity_id: number; created_at: string; actor: string }
+
+function AuditTrail({ token }: { token: string }) {
+  const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest<{ entries: AuditEntry[] }>('/audit', {}, token)
+      .then((result) => setEntries(result.entries))
+      .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Audit entries could not be loaded.'))
+      .finally(() => setLoading(false))
+  }, [token])
+
+  return <><PageHeader eyebrow="Office controls · Exam audit" title="Audit trail" description="Recent attendance, marks and fee actions for this campus" action={<span className="lock-status is-locked"><ShieldCheck size={16} /> Office admin only</span>} /><section className="panel students-panel"><div className="panel-heading"><div><p className="eyebrow">Last 50 events</p><h2>Record history</h2></div></div>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading audit history…</div> : entries.length === 0 ? <div className="empty-note">No audit activity yet.</div> : <div className="table-wrap directory-table"><table><thead><tr><th>Action</th><th>Area</th><th>Actor</th><th>Record</th><th>Time</th></tr></thead><tbody>{entries.map((entry, index) => <tr key={`${entry.created_at}-${entry.entity_id}-${index}`}><td><strong>{entry.action.replaceAll('.', ' ')}</strong></td><td>{entry.entity}</td><td>{entry.actor}</td><td>#{entry.entity_id}</td><td>{entry.created_at}</td></tr>)}</tbody></table></div>}</section></>
 }
 
 type AssistantResponse = { answer: string; filters: string[]; rowCount: number; rows: Array<Record<string, string | number>>; readOnly: boolean }

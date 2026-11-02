@@ -58,6 +58,10 @@ This submission focuses on one Engineering College campus and the core build: si
 
 The overview metrics are now read from `/api/dashboard`, so the displayed student count, average attendance, marks average, outstanding fees and at-risk count are derived from the persisted campus records rather than hardcoded UI values.
 
+## Exports
+
+The marks screen downloads `asteria-data-structures-marks.csv` with roll number, student, component scores and total. The fee screen downloads `asteria-fee-dues.csv` with roll number, student, programme, year and amount due. These are clean prototype exports for review; the university upload and Tally layouts should be mapped to the institution’s supplied specifications before production.
+
 ## Roles and audit trail
 
 The faculty demo can view and update attendance and marks but cannot record fee payments or open the audit trail. The office-admin demo can record test payments and review the last 50 attendance, marks and fee events. The API enforces these permissions; hiding the controls in the UI is only a usability layer.

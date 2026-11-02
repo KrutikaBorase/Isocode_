@@ -54,6 +54,25 @@ app.get('/api/students', auth, (request: RequestWithUser, response) => {
   response.json({ students: rows })
 })
 
+app.get('/api/dashboard', auth, (_request, response) => {
+  const summary = db.prepare(`
+    SELECT
+      COUNT(*) as students,
+      ROUND(AVG(attendance), 1) as average_attendance,
+      ROUND(AVG(internal_marks), 0) as average_marks,
+      SUM(fee_due) as outstanding_fees,
+      SUM(CASE WHEN attendance < 75 OR internal_marks < 24 THEN 1 ELSE 0 END) as at_risk_count
+    FROM students
+  `).get()
+  const atRisk = db.prepare(`
+    SELECT roll_no as roll, name, programme, year, attendance, internal_marks as marks, fee_due as dues
+    FROM students
+    WHERE attendance < 75 OR internal_marks < 24
+    ORDER BY attendance ASC, internal_marks ASC
+  `).all()
+  response.json({ summary, atRisk })
+})
+
 app.get('/api/attendance', auth, (request: RequestWithUser, response) => {
   const query = z.object({ subject: z.string().min(1).max(100), date: z.string().date() }).safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: 'Subject and a valid date are required.' })

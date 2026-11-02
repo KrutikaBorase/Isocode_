@@ -56,6 +56,8 @@ These are synthetic demo accounts only. Replace them with managed identity befor
 
 This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot and directory, attendance marking/reload/sync, marks moderation lock, fee dues with a test-mode receipt transaction, the fixed-rule at-risk flag, and a constrained read-only assistant. Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
 
+The overview metrics are now read from `/api/dashboard`, so the displayed student count, average attendance, marks average, outstanding fees and at-risk count are derived from the persisted campus records rather than hardcoded UI values.
+
 ## Roles and audit trail
 
 The faculty demo can view and update attendance and marks but cannot record fee payments or open the audit trail. The office-admin demo can record test payments and review the last 50 attendance, marks and fee events. The API enforces these permissions; hiding the controls in the UI is only a usability layer.

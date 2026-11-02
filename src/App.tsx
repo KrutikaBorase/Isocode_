@@ -25,6 +25,10 @@ import { isAtRisk } from './risk'
 type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit'
 type AttendanceStatus = 'present' | 'absent' | 'late'
 type SessionUser = { name: string; role: 'faculty' | 'office_admin'; campus: string }
+type DashboardData = {
+  summary: { students: number; average_attendance: number; average_marks: number; outstanding_fees: number; at_risk_count: number }
+  atRisk: Array<{ roll: string; name: string; programme: string; year: number; attendance: number; marks: number; dues: number }>
+}
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
 const ATTENDANCE_QUEUE_KEY = 'asteria:attendance-queue'
 
@@ -203,9 +207,9 @@ function App() {
       </aside>
       {mobileNav && <button className="mobile-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => setSignedIn(false)} title="Sign out"><LogOut size={18} /></button></div></header>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken('') }} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
-          {view === 'overview' && <Overview atRisk={atRisk} onNavigate={setView} />}
+          {view === 'overview' && <LiveOverview token={token} fallbackAtRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
           {view === 'marks' && <LiveMarks token={token} />}
           {view === 'fees' && <LiveFees token={token} canRecordPayments={currentUser.role === 'office_admin'} />}
@@ -222,9 +226,24 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
   return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{description}</p></div>{action}</div>
 }
 
-function Overview({ atRisk, onNavigate }: { atRisk: typeof students; onNavigate: (view: View) => void }) {
+function LiveOverview({ token, fallbackAtRisk, onNavigate }: { token: string; fallbackAtRisk: typeof students; onNavigate: (view: View) => void }) {
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    apiRequest<DashboardData>('/dashboard', {}, token)
+      .then(setData)
+      .catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Dashboard data could not be loaded.'))
+  }, [token])
+
+  if (error) return <div className="panel error-card"><AlertTriangle size={18} /><div><strong>Dashboard unavailable</strong><span>{error}</span></div><button className="secondary-button" onClick={() => window.location.reload()}>Retry</button></div>
+  if (!data) return <div className="panel loading-card"><div className="loading-pulse" /><strong>Loading campus overview…</strong><span>Refreshing today’s academic signals.</span></div>
+  return <Overview atRisk={data.atRisk.length ? data.atRisk : fallbackAtRisk} onNavigate={onNavigate} summary={data.summary} />
+}
+
+function Overview({ atRisk, onNavigate, summary }: { atRisk: Array<{ roll: string; name: string; programme: string; year: number; attendance: number; marks: number; dues: number }>; onNavigate: (view: View) => void; summary: DashboardData['summary'] }) {
   return <><PageHeader eyebrow="Monday, 03 February 2025" title="Good morning, Riya" description="Here’s what needs your attention across B.Tech CSE today." action={<button className="secondary-button"><FileText size={17} /> View reports</button>} />
-    <div className="metric-grid"><Metric label="Students tracked" value="248" detail="+12 this semester" trend="up" icon={<Users />} /><Metric label="Attendance today" value="87.4%" detail="Above 75% threshold" trend="up" icon={<ClipboardCheck />} /><Metric label="Marks entered" value="76%" detail="24% remaining" trend="neutral" icon={<BookOpen />} /><Metric label="Fee dues" value="₹3.2L" detail="18 students pending" trend="down" icon={<CircleDollarSign />} /></div>
+    <div className="metric-grid"><Metric label="Students tracked" value={String(summary.students)} detail={`${summary.at_risk_count} need attention`} trend="up" icon={<Users />} /><Metric label="Average attendance" value={`${summary.average_attendance}%`} detail="75% fixed threshold" trend={summary.average_attendance >= 75 ? 'up' : 'down'} icon={<ClipboardCheck />} /><Metric label="Average internal marks" value={`${summary.average_marks}/40`} detail="24/40 benchmark" trend={summary.average_marks >= 24 ? 'up' : 'neutral'} icon={<BookOpen />} /><Metric label="Fee dues" value={`₹${summary.outstanding_fees.toLocaleString('en-IN')}`} detail="Outstanding balance" trend={summary.outstanding_fees ? 'down' : 'up'} icon={<CircleDollarSign />} /></div>
     <div className="content-grid"><section className="panel attention-panel"><div className="panel-heading"><div><p className="eyebrow">Needs attention</p><h2>At-risk students</h2></div><span className="ai-chip"><Sparkles size={14} /> AI assisted</span></div><p className="panel-intro">Students below 75% attendance or trending below the internal marks benchmark.</p><div className="risk-list">{atRisk.map((student) => <div className="risk-row" key={student.roll}><span className="avatar avatar-soft">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{student.name}</strong><small>{student.roll} · {student.programme}</small></div><div className="risk-values"><span className={student.attendance < 75 ? 'risk-number' : ''}>{student.attendance}% <small>attendance</small></span><span className={student.marks < 24 ? 'risk-number' : ''}>{student.marks}/40 <small>marks</small></span></div><button className="row-action" title="Create mentor task"><ArrowUpRight size={17} /></button></div>)}</div><button className="text-button" onClick={() => onNavigate('attendance')}>Review attendance <ArrowUpRight size={15} /></button></section>
       <section className="panel schedule-panel"><div className="panel-heading"><div><p className="eyebrow">Today · 03 Feb</p><h2>Teaching schedule</h2></div><button className="icon-button"><MoreHorizontal size={18} /></button></div><div className="schedule-list"><Schedule time="09:00" subject="Data Structures" group="B.Tech CSE · Year 2" room="Room 204" active /><Schedule time="11:00" subject="Operating Systems" group="B.Tech CSE · Year 2" room="Lab 3" /><Schedule time="14:00" subject="Elective: Cloud" group="B.Tech CSE · Year 2" room="Room 112" /></div><button className="secondary-button schedule-button" onClick={() => onNavigate('attendance')}>Take attendance <ClipboardCheck size={16} /></button></section></div>
     <section className="panel students-panel"><div className="panel-heading"><div><p className="eyebrow">Sample cohort · B.Tech CSE Year 2</p><h2>Student snapshot</h2></div><button className="text-button">View all <ArrowUpRight size={15} /></button></div><StudentTable /></section>

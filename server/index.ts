@@ -54,7 +54,7 @@ app.post('/api/auth/login', (request, response) => {
   response.json({ token, user: safeUser })
 })
 
-app.get('/api/students', auth, requireRole('faculty', 'office_admin', 'parent'), (request: RequestWithUser, response) => {
+app.get('/api/students', auth, requireRole('faculty', 'office_admin'), (request: RequestWithUser, response) => {
   const query = z.object({ search: z.string().max(80).optional() }).safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: 'Invalid search.' })
   const search = query.data.search?.trim()
@@ -101,12 +101,21 @@ app.post('/api/modules/admissions', auth, requireRole('office_admin'), (request,
   }
 })
 
-app.get('/api/modules/leave', auth, (_request, response) => {
+app.patch('/api/modules/admissions/:id', auth, requireRole('office_admin'), (request, response) => {
+  const status = z.enum(['new', 'documents_pending', 'confirmed']).safeParse(request.body.status)
+  const id = Number(request.params.id)
+  if (!status.success || !Number.isInteger(id)) return response.status(400).json({ error: 'Applicant status is invalid.' })
+  const result = db.prepare('UPDATE applicants SET status = ?, documents_complete = ? WHERE id = ?').run(status.data, status.data === 'confirmed' ? 1 : 0, id)
+  if (!result.changes) return response.status(404).json({ error: 'Applicant not found.' })
+  response.json({ updated: true })
+})
+
+app.get('/api/modules/leave', auth, requireRole('faculty', 'office_admin'), (_request, response) => {
   response.json({ requests: db.prepare('SELECT * FROM leave_requests ORDER BY from_date DESC').all() })
 })
 
 const leaveSchema = z.object({ staffName: z.string().min(2).max(100), leaveType: z.string().min(2).max(40), fromDate: z.string().date(), toDate: z.string().date(), reason: z.string().min(3).max(240) })
-app.post('/api/modules/leave', auth, (request, response) => {
+app.post('/api/modules/leave', auth, requireRole('faculty', 'office_admin'), (request, response) => {
   const parsed = leaveSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Leave request is invalid.' })
   db.prepare('INSERT INTO leave_requests (staff_name, leave_type, from_date, to_date, reason) VALUES (?, ?, ?, ?, ?)').run(parsed.data.staffName, parsed.data.leaveType, parsed.data.fromDate, parsed.data.toDate, parsed.data.reason)
@@ -122,11 +131,11 @@ app.patch('/api/modules/leave/:id', auth, requireRole('office_admin'), (request,
   response.json({ updated: true })
 })
 
-app.get('/api/modules/calendar', auth, (_request, response) => {
+app.get('/api/modules/calendar', auth, requireRole('faculty', 'office_admin'), (_request, response) => {
   response.json({ events: db.prepare('SELECT * FROM academic_calendar ORDER BY event_date').all() })
 })
 
-app.get('/api/modules/masters', auth, (_request, response) => {
+app.get('/api/modules/masters', auth, requireRole('faculty', 'office_admin'), (_request, response) => {
   response.json({
     programmes: db.prepare('SELECT * FROM programmes ORDER BY name').all(),
     subjects: db.prepare('SELECT * FROM subjects ORDER BY programme, semester, name').all(),
@@ -138,7 +147,7 @@ app.get('/api/modules/parent', auth, requireRole('parent'), (request: RequestWit
   response.json({ student })
 })
 
-app.get('/api/exports/marks', auth, (request, response) => {
+app.get('/api/exports/marks', auth, requireRole('faculty', 'office_admin'), (request, response) => {
   const subject = z.string().min(1).max(100).parse(request.query.subject ?? 'Data Structures')
   response.json({ format: 'university-internal-marks-v1', subject, rows: db.prepare(`SELECT s.roll_no as roll_number, s.name, s.programme, s.year, COALESCE(m.assignment, 0) as assignment_10, COALESCE(m.quiz, 0) as quiz_10, COALESCE(m.mid_sem, 0) as mid_sem_20, COALESCE(m.assignment + m.quiz + m.mid_sem, 0) as total_40 FROM students s LEFT JOIN marks m ON m.student_id = s.id AND m.subject = ? ORDER BY s.roll_no`).all(subject) })
 })

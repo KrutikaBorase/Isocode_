@@ -89,4 +89,6 @@ The assistant accepts only approved question shapes: attendance below 75%, outst
 - Parent: `parent.subhashree@companya.edu` / `parent1234` for a read-only view of Subhashree Mohanty.
 - Synthetic data: 20 students, three applicants, reference programmes/subjects, calendar events and leave requests are seeded on API startup.
 
+Parent access is API-restricted to the linked student record; staff directories, dashboards, attendance, marks, leave, masters and exports require a staff role.
+
 The university marks export is labelled `university-internal-marks-v1`; the Tally export is labelled `tally-fee-dues-v1`. These are stable prototype shapes and must be mapped to the institution's official specifications before production use.

@@ -145,5 +145,41 @@ app.get('/api/fees/dues', auth, (_request, response) => {
   response.json({ dues: db.prepare('SELECT roll_no as roll, name, programme, year, fee_due FROM students WHERE fee_due > 0 ORDER BY fee_due DESC').all() })
 })
 
+const assistantSchema = z.object({ question: z.string().trim().min(3).max(240) })
+app.post('/api/assistant/ask', auth, (request: RequestWithUser, response) => {
+  const parsed = assistantSchema.safeParse(request.body)
+  if (!parsed.success) return response.status(400).json({ error: 'Ask a question with at least three characters.' })
+
+  const question = parsed.data.question.toLowerCase()
+  const filters: string[] = ['Campus: Engineering College']
+  let rows: unknown[]
+  let answer: string
+
+  if (question.includes('below 75') && (question.includes('attendance') || question.includes('present'))) {
+    const yearTwoOnly = question.includes('second-year') || question.includes('second year') || question.includes('year 2')
+    if (yearTwoOnly) filters.push('Year: 2')
+    filters.push('Attendance: below 75%')
+    rows = yearTwoOnly
+      ? db.prepare('SELECT roll_no as roll, name, programme, year, attendance FROM students WHERE year = ? AND attendance < ? ORDER BY attendance ASC').all(2, 75)
+      : db.prepare('SELECT roll_no as roll, name, programme, year, attendance FROM students WHERE attendance < ? ORDER BY attendance ASC').all(75)
+    answer = `${rows.length} ${yearTwoOnly ? 'second-year ' : ''}student${rows.length === 1 ? '' : 's'} ${rows.length === 1 ? 'is' : 'are'} below 75% attendance.`
+  } else if (question.includes('fee') || question.includes('due')) {
+    filters.push('Fee due: greater than ₹0')
+    rows = db.prepare('SELECT roll_no as roll, name, programme, year, fee_due FROM students WHERE fee_due > 0 ORDER BY fee_due DESC').all()
+    answer = `${rows.length} student${rows.length === 1 ? ' has' : 's have'} an outstanding fee due.`
+  } else if (question.includes('marks') && (question.includes('below') || question.includes('low'))) {
+    filters.push('Internal marks: below 24/40')
+    rows = db.prepare('SELECT roll_no as roll, name, programme, year, internal_marks FROM students WHERE internal_marks < ? ORDER BY internal_marks ASC').all(24)
+    answer = `${rows.length} student${rows.length === 1 ? ' is' : 's are'} below the internal marks benchmark.`
+  } else {
+    return response.status(422).json({
+      error: 'I can answer attendance below 75%, outstanding fee dues, or internal marks below 24/40.',
+      supportedQuestions: ['How many second-year students are below 75% attendance?', 'Who has fee dues?', 'Which students have low marks?'],
+    })
+  }
+
+  response.json({ answer, filters, rowCount: rows.length, rows, readOnly: true })
+})
+
 app.use((_request, response) => response.status(404).json({ error: 'Not found.' }))
 app.listen(port, () => console.log(`Asteria API listening on http://localhost:${port}`))

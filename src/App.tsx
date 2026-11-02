@@ -25,6 +25,7 @@ import { isAtRisk } from './risk'
 type View = 'overview' | 'attendance' | 'marks' | 'fees'
 type AttendanceStatus = 'present' | 'absent' | 'late'
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
+const ATTENDANCE_QUEUE_KEY = 'asteria:attendance-queue'
 
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -120,8 +121,23 @@ function App() {
   const [attendance, setAttendance] = useState(initialAttendance)
   const [saved, setSaved] = useState(false)
   const [syncError, setSyncError] = useState('')
+  const [assistantOpen, setAssistantOpen] = useState(false)
 
   const atRisk = useMemo(() => students.filter(isAtRisk), [])
+
+  useEffect(() => {
+    if (!token) return
+    const syncQueuedAttendance = () => {
+      const queued = localStorage.getItem(ATTENDANCE_QUEUE_KEY)
+      if (!queued) return
+      apiRequest('/attendance/sync', { method: 'POST', body: queued }, token)
+        .then(() => localStorage.removeItem(ATTENDANCE_QUEUE_KEY))
+        .catch(() => undefined)
+    }
+    window.addEventListener('online', syncQueuedAttendance)
+    syncQueuedAttendance()
+    return () => window.removeEventListener('online', syncQueuedAttendance)
+  }, [token])
 
   if (!signedIn) return <Login onLogin={(nextToken) => { setToken(nextToken); setSignedIn(true) }} />
 
@@ -133,10 +149,19 @@ function App() {
   function saveAttendance() {
     setSaved(false)
     setSyncError('')
-    apiRequest('/attendance/sync', {
-      method: 'POST',
-      body: JSON.stringify({ subject: 'Data Structures', date: '2025-02-03', records: Object.entries(attendance).map(([roll, status]) => ({ roll, status })) }),
-    }, token).then(() => setSaved(true)).catch((error: unknown) => setSyncError(error instanceof Error ? error.message : 'Attendance could not be synced.'))
+    const body = JSON.stringify({ subject: 'Data Structures', date: '2025-02-03', records: Object.entries(attendance).map(([roll, status]) => ({ roll, status })) })
+    localStorage.setItem(ATTENDANCE_QUEUE_KEY, body)
+    if (!navigator.onLine) {
+      setSaved(true)
+      setSyncError('Saved offline. It will sync automatically when the connection returns.')
+      return
+    }
+    apiRequest('/attendance/sync', { method: 'POST', body }, token)
+      .then(() => {
+        localStorage.removeItem(ATTENDANCE_QUEUE_KEY)
+        setSaved(true)
+      })
+      .catch((error: unknown) => setSyncError(error instanceof Error ? error.message : 'Attendance is queued for retry.'))
   }
 
   return (
@@ -155,7 +180,7 @@ function App() {
           <button className="nav-item"><SlidersHorizontal size={18} /><span>Masters</span></button>
         </nav>
         <div className="sidebar-bottom">
-          <div className="help-card"><Sparkles size={17} /><strong>Need a hand?</strong><span>Ask Asteria about your campus data.</span><button>Open assistant <ArrowUpRight size={14} /></button></div>
+          <div className="help-card"><Sparkles size={17} /><strong>Need a hand?</strong><span>Ask Asteria about your campus data.</span><button onClick={() => setAssistantOpen(true)}>Open assistant <ArrowUpRight size={14} /></button></div>
           <button className="profile-row"><span className="avatar">RS</span><span className="profile-copy"><strong>Riya Sharma</strong><small>Faculty · CSE</small></span><MoreHorizontal size={18} /></button>
         </div>
       </aside>
@@ -168,6 +193,7 @@ function App() {
           {view === 'marks' && <LiveMarks token={token} />}
           {view === 'fees' && <LiveFees token={token} />}
         </div>
+        {assistantOpen && <AssistantPanel token={token} onClose={() => setAssistantOpen(false)} />}
       </main>
     </div>
   )
@@ -273,6 +299,32 @@ function LiveFees({ token }: { token: string }) {
   }, [token])
 
   return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button"><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">Payment links are in test mode. Receipts are generated after a successful mock payment.</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div><button className="secondary-button" onClick={() => setMessage(`Test reminder queued for ${due.name}.`)}>Send reminder</button><button className="row-action"><MoreHorizontal size={17} /></button></div>)}{message && <div className="empty-note"><Check size={18} /> {message}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+}
+
+type AssistantResponse = { answer: string; filters: string[]; rowCount: number; rows: Array<Record<string, string | number>>; readOnly: boolean }
+
+function AssistantPanel({ token, onClose }: { token: string; onClose: () => void }) {
+  const [question, setQuestion] = useState('How many second-year students are below 75% attendance?')
+  const [result, setResult] = useState<AssistantResponse | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function ask(event: React.FormEvent) {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const response = await apiRequest<AssistantResponse>('/assistant/ask', { method: 'POST', body: JSON.stringify({ question }) }, token)
+      setResult(response)
+    } catch (requestError) {
+      setResult(null)
+      setError(requestError instanceof Error ? requestError.message : 'The assistant could not answer that.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <div className="assistant-backdrop" role="presentation" onClick={onClose}><section className="assistant-panel" role="dialog" aria-modal="true" aria-labelledby="assistant-title" onClick={(event) => event.stopPropagation()}><div className="assistant-heading"><div><span className="ai-chip"><Sparkles size={14} /> Read-only assistant</span><h2 id="assistant-title">Ask about your campus data</h2></div><button className="icon-button" onClick={onClose} aria-label="Close assistant">×</button></div><p className="panel-intro">Asteria only runs approved read-only questions. It shows the filters and row count used.</p><form className="assistant-form" onSubmit={ask}><input value={question} onChange={(event) => setQuestion(event.target.value)} aria-label="Campus question" placeholder="Ask a campus question..." /><button className="primary-button" disabled={loading || question.trim().length < 3}>{loading ? 'Checking…' : 'Ask'} <ArrowUpRight size={16} /></button></form>{error && <div className="assistant-error"><AlertTriangle size={16} /> {error}</div>}{result && <div className="assistant-result"><div className="assistant-answer"><strong>{result.answer}</strong><span><ShieldCheck size={14} /> Read-only · {result.rowCount} row{result.rowCount === 1 ? '' : 's'}</span></div><div className="assistant-filters"><p className="eyebrow">Filters used</p>{result.filters.map((filter) => <span key={filter}>{filter}</span>)}</div>{result.rows.length > 0 && <div className="assistant-rows">{result.rows.map((row) => <div key={String(row.roll)}><strong>{String(row.name)}</strong><small>{String(row.roll)} · {row.attendance !== undefined ? `${row.attendance}% attendance` : row.fee_due !== undefined ? `₹${Number(row.fee_due).toLocaleString('en-IN')} due` : `${row.internal_marks}/40 marks`}</small></div>)}</div>}</div>}<div className="assistant-examples"><span>Try:</span><button type="button" onClick={() => setQuestion('Who has fee dues?')}>Who has fee dues?</button><button type="button" onClick={() => setQuestion('Which students have low marks?')}>Which students have low marks?</button></div></section></div>
 }
 
 void Marks

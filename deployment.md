@@ -54,4 +54,12 @@ These are synthetic demo accounts only. Replace them with managed identity befor
 
 ## Scope and known limits
 
-This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot, attendance marking/sync, marks moderation lock, fee dues, and the fixed-rule at-risk flag. Payment links, Tally export, university upload formats, multilingual parent messages, and the natural-language read-only assistant are represented as next-phase integration points rather than connected to outside systems.
+This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot, attendance marking/sync, marks moderation lock, fee dues, the fixed-rule at-risk flag, and a constrained read-only assistant. Payment links, Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
+
+## Offline attendance
+
+Attendance edits are stored in the browser queue before sync. If the device is offline, the screen confirms that the batch is saved locally; when the browser emits an `online` event, Asteria retries the queued batch. The API upserts by student, subject and class date, so retrying the same batch is safe. For production, replace the localStorage queue with IndexedDB and add an idempotency key per class session.
+
+## Read-only assistant
+
+The assistant accepts only approved question shapes: attendance below 75%, outstanding fee dues, and internal marks below 24/40. It never accepts SQL from the browser, only returns data visible to the authenticated campus user, and returns the answer, filters used, row count and matching rows. Unsupported questions are rejected with examples instead of a guessed answer.

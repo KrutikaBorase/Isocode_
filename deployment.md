@@ -56,7 +56,7 @@ These are synthetic demo accounts only. Replace them with managed identity befor
 
 ## Scope and known limits
 
-This submission focuses on one Engineering College campus and the core build: sign-in, student snapshot and directory, attendance marking/reload/sync, marks moderation lock, fee dues with a test-mode receipt transaction, the fixed-rule at-risk flag, and a constrained read-only assistant. Tally export, university upload formats, and multilingual parent messages remain next-phase integration points rather than connected outside systems.
+This submission focuses on one Engineering College campus and includes the core build plus working admissions, parent read-only access, staff leave, calendar, masters, university marks export and Tally-shaped fee export modules. External payment, official university and Tally connections remain test/export boundaries because no external credentials or file specifications were supplied.
 
 The overview metrics are now read from `/api/dashboard`, so the displayed student count, average attendance, marks average, outstanding fees and at-risk count are derived from the persisted campus records rather than hardcoded UI values.
 
@@ -81,3 +81,12 @@ Attendance edits are stored in the browser queue before sync. If the device is o
 ## Read-only assistant
 
 The assistant accepts only approved question shapes: attendance below 75%, outstanding fee dues, and internal marks below 24/40. It never accepts SQL from the browser, only returns data visible to the authenticated campus user, and returns the answer, filters used, row count and matching rows. Unsupported questions are rejected with examples instead of a guessed answer.
+
+## Additional module demo paths
+
+- Office admin: admissions, staff leave approvals, calendar, masters, audit trail and exports.
+- Faculty: attendance, marks, fees, student directory, calendar, masters and exports.
+- Parent: `parent.subhashree@companya.edu` / `parent1234` for a read-only view of Subhashree Mohanty.
+- Synthetic data: 20 students, three applicants, reference programmes/subjects, calendar events and leave requests are seeded on API startup.
+
+The university marks export is labelled `university-internal-marks-v1`; the Tally export is labelled `tally-fee-dues-v1`. These are stable prototype shapes and must be mapped to the institution's official specifications before production use.

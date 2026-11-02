@@ -3,12 +3,16 @@ import {
   AlertTriangle,
   ArrowUpRight,
   BookOpen,
+  BriefcaseBusiness,
   CalendarDays,
+  CalendarCheck,
   Check,
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
   FileText,
+  FileSpreadsheet,
+  GraduationCap,
   Home,
   LogOut,
   Menu,
@@ -18,13 +22,14 @@ import {
   SlidersHorizontal,
   Sparkles,
   Users,
+  Upload,
 } from 'lucide-react'
 import './App.css'
 import { isAtRisk } from './risk'
 
-type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit'
+type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit' | 'admissions' | 'parent' | 'leave' | 'calendar' | 'masters' | 'exports'
 type AttendanceStatus = 'present' | 'absent' | 'late'
-type SessionUser = { name: string; role: 'faculty' | 'office_admin'; campus: string }
+type SessionUser = { name: string; role: 'faculty' | 'office_admin' | 'parent'; campus: string; student_id?: number }
 type ApiStatus = 'checking' | 'online' | 'offline'
 type DashboardData = {
   summary: { students: number; average_attendance: number; average_marks: number; outstanding_fees: number; at_risk_count: number }
@@ -43,10 +48,10 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
   return body
 }
 
-function downloadCsv(filename: string, rows: Array<Record<string, string | number>>) {
+function downloadCsv(filename: string, rows: Array<Record<string, string | number | boolean | null>>) {
   if (!rows.length) return
   const headers = Object.keys(rows[0])
-  const escape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`
+  const escape = (value: string | number | boolean | null) => `"${String(value ?? '').replaceAll('"', '""')}"`
   const csv = [headers.join(','), ...rows.map((row) => headers.map((header) => escape(row[header] ?? '')).join(','))].join('\r\n')
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
   const link = document.createElement('a')
@@ -67,6 +72,14 @@ const navItems: { id: View; label: string; icon: typeof Home }[] = [
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck },
   { id: 'marks', label: 'Internal marks', icon: BookOpen },
   { id: 'fees', label: 'Fee dues', icon: CircleDollarSign },
+]
+
+const moduleItems: { id: View; label: string; icon: typeof Home }[] = [
+  { id: 'admissions', label: 'Admissions', icon: GraduationCap },
+  { id: 'leave', label: 'Staff leave', icon: BriefcaseBusiness },
+  { id: 'calendar', label: 'Calendar', icon: CalendarCheck },
+  { id: 'masters', label: 'Masters', icon: SlidersHorizontal },
+  { id: 'exports', label: 'Exports', icon: FileSpreadsheet },
 ]
 
 const initialAttendance: Record<string, AttendanceStatus> = {
@@ -124,7 +137,7 @@ function Login({ onLogin }: { onLogin: (token: string, user: SessionUser) => voi
             {error && <div className="form-error"><AlertTriangle size={16} />{error}</div>}
             <button className="primary-button full-width" type="submit" disabled={loading}>{loading ? 'Signing in…' : 'Sign in'} {!loading && <ArrowUpRight size={17} />}</button>
           </form>
-          <div className="demo-hint"><ShieldCheck size={17} /><span><strong>Demo access</strong><br />faculty@companya.edu · demo1234</span></div>
+          <div className="demo-hint"><ShieldCheck size={17} /><span><strong>Demo access</strong><br />faculty@companya.edu · demo1234<br />Parent: parent.subhashree@companya.edu · parent1234</span></div>
         </div>
         <p className="login-footer">© 2025 Company A · Privacy & security</p>
       </div>
@@ -190,7 +203,7 @@ function App() {
     }
   }, [token])
 
-  if (!signedIn || !currentUser) return <Login onLogin={(nextToken, user) => { setToken(nextToken); setCurrentUser(user); setSignedIn(true) }} />
+  if (!signedIn || !currentUser) return <Login onLogin={(nextToken, user) => { setToken(nextToken); setCurrentUser(user); setView(user.role === 'parent' ? 'parent' : 'overview'); setSignedIn(true) }} />
 
   function markAttendance(roll: string, status: AttendanceStatus) {
     setAttendance((current) => ({ ...current, [roll]: status }))
@@ -222,23 +235,25 @@ function App() {
         <div className="campus-switcher"><div className="campus-icon">KI</div><div><small>Campus</small><strong>Engineering College</strong></div><ChevronDown size={16} /></div>
         <nav className="main-nav" aria-label="Main navigation">
           <p className="nav-label">Workspace</p>
-          {navItems.map(({ id, label, icon: Icon }) => (
+          {currentUser.role !== 'parent' && navItems.map(({ id, label, icon: Icon }) => (
             <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => { setView(id); setMobileNav(false) }}><Icon size={18} /><span>{label}</span>{id === 'attendance' && <span className="nav-badge">3</span>}</button>
           ))}
           <p className="nav-label nav-label-spaced">Manage</p>
           <button className={`nav-item ${view === 'students' ? 'active' : ''}`} onClick={() => { setView('students'); setMobileNav(false) }}><Users size={18} /><span>Students</span></button>
           {currentUser.role === 'office_admin' && <button className={`nav-item ${view === 'audit' ? 'active' : ''}`} onClick={() => { setView('audit'); setMobileNav(false) }}><ShieldCheck size={18} /><span>Audit trail</span></button>}
-          <button className="nav-item"><CalendarDays size={18} /><span>Academic calendar</span></button>
-          <button className="nav-item"><SlidersHorizontal size={18} /><span>Masters</span></button>
+          {currentUser.role === 'parent' && <button className={`nav-item ${view === 'parent' ? 'active' : ''}`} onClick={() => { setView('parent'); setMobileNav(false) }}><Users size={18} /><span>My student</span></button>}
+          {currentUser.role !== 'parent' && moduleItems.filter((item) => item.id !== 'admissions' || currentUser.role === 'office_admin').map(({ id, label, icon: Icon }) => (
+            <button key={id} className={`nav-item ${view === id ? 'active' : ''}`} onClick={() => { setView(id); setMobileNav(false) }}><Icon size={18} /><span>{label}</span></button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="help-card"><Sparkles size={17} /><strong>Need a hand?</strong><span>Ask Asteria about your campus data.</span><button onClick={() => setAssistantOpen(true)}>Open assistant <ArrowUpRight size={14} /></button></div>
-          <button className="profile-row"><span className="avatar">RS</span><span className="profile-copy"><strong>Riya Sharma</strong><small>Faculty · CSE</small></span><MoreHorizontal size={18} /></button>
+          <button className="profile-row" onClick={() => setView(currentUser.role === 'parent' ? 'parent' : 'students')}><span className="avatar">{currentUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span className="profile-copy"><strong>{currentUser.name}</strong><small>{currentUser.role === 'office_admin' ? 'Office admin' : currentUser.role === 'parent' ? 'Parent access' : 'Faculty'}</small></span><MoreHorizontal size={18} /></button>
         </div>
       </aside>
       {mobileNav && <button className="mobile-backdrop" onClick={() => setMobileNav(false)} aria-label="Close menu" />}
       <main className="main-content">
-        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{navItems.find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><span className={`api-status ${apiStatus}`}><span className="api-status-dot" />{apiStatus === 'checking' ? 'Checking connection' : apiStatus === 'online' ? 'System online' : 'Offline mode'}</span><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken(''); setApiStatus('checking') }} title="Sign out"><LogOut size={18} /></button></div></header>
+        <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{[...navItems, ...moduleItems, { id: 'students' as View, label: 'Students', icon: Users }, { id: 'audit' as View, label: 'Audit trail', icon: ShieldCheck }, { id: 'parent' as View, label: 'My student', icon: Users }].find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><span className={`api-status ${apiStatus}`}><span className="api-status-dot" />{apiStatus === 'checking' ? 'Checking connection' : apiStatus === 'online' ? 'System online' : 'Offline mode'}</span><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div><button className="icon-button" onClick={() => setView('audit')} title="Open notifications"><AlertTriangle size={19} /><span className="notification-dot" /></button><button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken(''); setApiStatus('checking') }} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
           {view === 'overview' && <LiveOverview token={token} fallbackAtRisk={atRisk} onNavigate={setView} />}
           {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
@@ -246,6 +261,12 @@ function App() {
           {view === 'fees' && <LiveFees token={token} canRecordPayments={currentUser.role === 'office_admin'} />}
           {view === 'students' && <LiveStudents token={token} />}
           {view === 'audit' && currentUser.role === 'office_admin' && <AuditTrail token={token} />}
+          {view === 'admissions' && currentUser.role === 'office_admin' && <Admissions token={token} />}
+          {view === 'parent' && currentUser.role === 'parent' && <ParentPortal token={token} />}
+          {view === 'leave' && currentUser.role !== 'parent' && <LeaveModule token={token} canApprove={currentUser.role === 'office_admin'} />}
+          {view === 'calendar' && currentUser.role !== 'parent' && <CalendarModule token={token} />}
+          {view === 'masters' && currentUser.role !== 'parent' && <MastersModule token={token} />}
+          {view === 'exports' && currentUser.role !== 'parent' && <ExportsModule token={token} isAdmin={currentUser.role === 'office_admin'} />}
         </div>
         {assistantOpen && <AssistantPanel token={token} onClose={() => setAssistantOpen(false)} />}
       </main>
@@ -273,11 +294,11 @@ function LiveOverview({ token, fallbackAtRisk, onNavigate }: { token: string; fa
 }
 
 function Overview({ atRisk, onNavigate, summary }: { atRisk: Array<{ roll: string; name: string; programme: string; year: number; attendance: number; marks: number; dues: number }>; onNavigate: (view: View) => void; summary: DashboardData['summary'] }) {
-  return <><PageHeader eyebrow="Monday, 03 February 2025" title="Good morning, Riya" description="Here’s what needs your attention across B.Tech CSE today." action={<button className="secondary-button"><FileText size={17} /> View reports</button>} />
+  return <><PageHeader eyebrow="Monday, 03 February 2025" title="Good morning, Riya" description="Here’s what needs your attention across B.Tech CSE today." action={<button className="secondary-button" onClick={() => onNavigate('exports')}><FileText size={17} /> View reports</button>} />
     <div className="metric-grid"><Metric label="Students tracked" value={String(summary.students)} detail={`${summary.at_risk_count} need attention`} trend="up" icon={<Users />} /><Metric label="Average attendance" value={`${summary.average_attendance}%`} detail="75% fixed threshold" trend={summary.average_attendance >= 75 ? 'up' : 'down'} icon={<ClipboardCheck />} /><Metric label="Average internal marks" value={`${summary.average_marks}/40`} detail="24/40 benchmark" trend={summary.average_marks >= 24 ? 'up' : 'neutral'} icon={<BookOpen />} /><Metric label="Fee dues" value={`₹${summary.outstanding_fees.toLocaleString('en-IN')}`} detail="Outstanding balance" trend={summary.outstanding_fees ? 'down' : 'up'} icon={<CircleDollarSign />} /></div>
     <div className="content-grid"><section className="panel attention-panel"><div className="panel-heading"><div><p className="eyebrow">Needs attention</p><h2>At-risk students</h2></div><span className="ai-chip"><Sparkles size={14} /> AI assisted</span></div><p className="panel-intro">Students below 75% attendance or trending below the internal marks benchmark.</p><div className="risk-list">{atRisk.map((student) => <div className="risk-row" key={student.roll}><span className="avatar avatar-soft">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{student.name}</strong><small>{student.roll} · {student.programme}</small></div><div className="risk-values"><span className={student.attendance < 75 ? 'risk-number' : ''}>{student.attendance}% <small>attendance</small></span><span className={student.marks < 24 ? 'risk-number' : ''}>{student.marks}/40 <small>marks</small></span></div><button className="row-action" title="Create mentor task"><ArrowUpRight size={17} /></button></div>)}</div><button className="text-button" onClick={() => onNavigate('attendance')}>Review attendance <ArrowUpRight size={15} /></button></section>
-      <section className="panel schedule-panel"><div className="panel-heading"><div><p className="eyebrow">Today · 03 Feb</p><h2>Teaching schedule</h2></div><button className="icon-button"><MoreHorizontal size={18} /></button></div><div className="schedule-list"><Schedule time="09:00" subject="Data Structures" group="B.Tech CSE · Year 2" room="Room 204" active /><Schedule time="11:00" subject="Operating Systems" group="B.Tech CSE · Year 2" room="Lab 3" /><Schedule time="14:00" subject="Elective: Cloud" group="B.Tech CSE · Year 2" room="Room 112" /></div><button className="secondary-button schedule-button" onClick={() => onNavigate('attendance')}>Take attendance <ClipboardCheck size={16} /></button></section></div>
-    <section className="panel students-panel"><div className="panel-heading"><div><p className="eyebrow">Sample cohort · B.Tech CSE Year 2</p><h2>Student snapshot</h2></div><button className="text-button">View all <ArrowUpRight size={15} /></button></div><StudentTable /></section>
+      <section className="panel schedule-panel"><div className="panel-heading"><div><p className="eyebrow">Today · 03 Feb</p><h2>Teaching schedule</h2></div><button className="icon-button" onClick={() => onNavigate('calendar')} title="Open calendar"><CalendarDays size={18} /></button></div><div className="schedule-list"><Schedule time="09:00" subject="Data Structures" group="B.Tech CSE · Year 2" room="Room 204" active /><Schedule time="11:00" subject="Operating Systems" group="B.Tech CSE · Year 2" room="Lab 3" /><Schedule time="14:00" subject="Elective: Cloud" group="B.Tech CSE · Year 2" room="Room 112" /></div><button className="secondary-button schedule-button" onClick={() => onNavigate('attendance')}>Take attendance <ClipboardCheck size={16} /></button></section></div>
+    <section className="panel students-panel"><div className="panel-heading"><div><p className="eyebrow">Sample cohort · B.Tech CSE Year 2</p><h2>Student snapshot</h2></div><button className="text-button" onClick={() => onNavigate('students')}>View all <ArrowUpRight size={15} /></button></div><StudentTable /></section>
   </>
 }
 
@@ -426,6 +447,69 @@ function LiveFees({ token, canRecordPayments }: { token: string; canRecordPaymen
   }
 
   return <><PageHeader eyebrow="Accounts · February 2025" title="Fee dues" description="Live outstanding balances from the campus ledger" action={<button className="secondary-button" disabled={loading || dues.length === 0} onClick={() => downloadCsv('asteria-fee-dues.csv', dues.map((due) => ({ roll_no: due.roll, student: due.name, programme: due.programme, year: due.year, fee_due: due.fee_due })))}><FileText size={17} /> Export for Tally</button>} /><div className="metric-grid fee-metrics"><Metric label="Outstanding" value={`₹${dues.reduce((sum, due) => sum + due.fee_due, 0).toLocaleString('en-IN')}`} detail={`${dues.length} student${dues.length === 1 ? '' : 's'} pending`} trend="down" icon={<CircleDollarSign />} /><Metric label="Collected this month" value="₹1.8L" detail="+8.2% vs January" trend="up" icon={<ArrowUpRight />} /><Metric label="Collection rate" value="91.4%" detail="Target 90%" trend="up" icon={<Check />} /></div><section className="panel fees-panel"><div className="panel-heading"><div><p className="eyebrow">Action required</p><h2>Pending payments</h2></div><button className="secondary-button"><SlidersHorizontal size={16} /> Filter</button></div><p className="panel-intro">{canRecordPayments ? 'Test mode only: record a full mock payment to generate a receipt and clear this due.' : 'You can view dues, but only office admins can record payments.'}</p>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading dues…</div> : dues.map((due) => <div className="due-card" key={due.roll}><span className="avatar avatar-soft">{due.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{due.name}</strong><small>{due.roll} · {due.programme} · Year {due.year}</small></div><div className="due-amount"><small>Total due</small><strong>₹{due.fee_due.toLocaleString('en-IN')}</strong></div>{canRecordPayments && <button className="secondary-button" disabled={paying === due.roll} onClick={() => recordTestPayment(due)}>{paying === due.roll ? 'Recording…' : 'Record test payment'}</button>}<button className="row-action"><MoreHorizontal size={17} /></button></div>)}{paymentMessage && <div className="empty-note"><Check size={18} /> {paymentMessage}</div>}{!loading && !error && dues.length === 0 && <div className="empty-note"><Check size={18} /> No outstanding dues.</div>}</section></>
+}
+
+type ModuleRecord = Record<string, string | number | boolean | null>
+
+function ModuleTable({ rows }: { rows: ModuleRecord[] }) {
+  if (!rows.length) return <div className="empty-note">No records yet.</div>
+  const keys = Object.keys(rows[0])
+  return <div className="table-wrap directory-table"><table><thead><tr>{keys.map((key) => <th key={key}>{key.replaceAll('_', ' ')}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{keys.map((key) => <td key={key}>{String(row[key] ?? '—')}</td>)}</tr>)}</tbody></table></div>
+}
+
+function ModuleLoader({ title, description, path, token, action }: { title: string; description: string; path: string; token: string; action?: React.ReactNode }) {
+  const [rows, setRows] = useState<ModuleRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    apiRequest<Record<string, ModuleRecord[]>>(path, {}, token).then((result) => {
+      const firstArray = Object.values(result).find(Array.isArray) as ModuleRecord[] | undefined
+      setRows(firstArray ?? [])
+    }).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Module data could not be loaded.')).finally(() => setLoading(false))
+  }, [path, token])
+  return <>{title && <PageHeader eyebrow="Campus operations" title={title} description={description} action={action} />}<section className="panel students-panel">{error && <div className="form-error"><AlertTriangle size={15} />{error}</div>}{loading ? <div className="loading-card"><div className="loading-pulse" /><strong>Loading records…</strong></div> : <ModuleTable rows={rows} />}</section></>
+}
+
+function Admissions({ token }: { token: string }) {
+  const [name, setName] = useState('')
+  const [programme, setProgramme] = useState('B.Tech CSE')
+  const [applicationNo, setApplicationNo] = useState('')
+  const [message, setMessage] = useState('')
+  async function addApplicant(event: React.FormEvent) {
+    event.preventDefault()
+    try { await apiRequest('/modules/admissions', { method: 'POST', body: JSON.stringify({ name, programme, applicationNo }) }, token); setMessage('Applicant added. Refresh to see the updated checklist.'); setName(''); setApplicationNo('') } catch (error) { setMessage(error instanceof Error ? error.message : 'Applicant could not be added.') }
+  }
+  return <><PageHeader eyebrow="Admissions · Office admin" title="Applicant pipeline" description="Import-ready applicant records with document completion status." /><section className="panel"><form className="module-form" onSubmit={addApplicant}><input required value={applicationNo} onChange={(event) => setApplicationNo(event.target.value)} placeholder="Application no." /><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Applicant name" /><select value={programme} onChange={(event) => setProgramme(event.target.value)}><option>B.Tech CSE</option><option>B.Tech Mechanical</option><option>B.Tech IT</option><option>MBA</option></select><button className="primary-button">Add applicant <Upload size={15} /></button></form>{message && <div className="success-note">{message}</div>}</section><ModuleLoader title="" description="" path="/modules/admissions" token={token} /></>
+}
+
+function LeaveModule({ token, canApprove }: { token: string; canApprove: boolean }) {
+  const [message, setMessage] = useState('')
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    try { await apiRequest('/modules/leave', { method: 'POST', body: JSON.stringify({ staffName: form.get('staffName'), leaveType: form.get('leaveType'), fromDate: form.get('fromDate'), toDate: form.get('toDate'), reason: form.get('reason') }) }, token); setMessage('Leave request submitted.'); event.currentTarget.reset() } catch (error) { setMessage(error instanceof Error ? error.message : 'Leave request failed.') }
+  }
+  return <><PageHeader eyebrow="HR · Staff leave" title="Leave desk" description="Submit and review staff leave without paper forms." /><section className="panel"><form className="module-form" onSubmit={submit}><input name="staffName" required placeholder="Staff name" /><select name="leaveType"><option>Casual leave</option><option>Earned leave</option><option>Medical leave</option></select><input name="fromDate" required type="date" /><input name="toDate" required type="date" /><input name="reason" required placeholder="Reason" /><button className="primary-button">Submit request</button></form>{message && <div className="success-note">{message}</div>}</section><ModuleLoader title="" description="" path="/modules/leave" token={token} action={canApprove ? <span className="lock-status is-locked">Office admin approvals enabled</span> : undefined} /></>
+}
+
+function CalendarModule({ token }: { token: string }) { return <ModuleLoader title="Academic calendar" description="Assessment and engagement dates for this campus." path="/modules/calendar" token={token} /> }
+function MastersModule({ token }: { token: string }) { return <ModuleLoader title="Programme and subject masters" description="Reference data used by attendance and marks workflows." path="/modules/masters" token={token} /> }
+
+function ExportsModule({ token, isAdmin }: { token: string; isAdmin: boolean }) {
+  const [message, setMessage] = useState('')
+  async function download(path: string, filename: string) {
+    try { const result = await apiRequest<{ rows: ModuleRecord[] }>(path, {}, token); downloadCsv(filename, result.rows); setMessage(`${filename} downloaded.`) } catch (error) { setMessage(error instanceof Error ? error.message : 'Export failed.') }
+  }
+  return <><PageHeader eyebrow="Reports · Data exchange" title="Exports" description="Download clean files for university review and accounts reconciliation." /><section className="panel export-actions"><button className="primary-button" onClick={() => download('/exports/marks?subject=Data%20Structures', 'university-internal-marks.csv')}>University marks upload <FileSpreadsheet size={16} /></button>{isAdmin && <button className="secondary-button" onClick={() => download('/exports/tally', 'tally-fee-dues.csv')}>Tally fee dues <CircleDollarSign size={16} /></button>}{message && <div className="success-note">{message}</div>}</section></>
+}
+
+function ParentPortal({ token }: { token: string }) {
+  const [student, setStudent] = useState<ModuleRecord | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => { apiRequest<{ student: ModuleRecord }>('/modules/parent', {}, token).then((result) => setStudent(result.student)).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : 'Student record could not be loaded.')) }, [token])
+  if (error) return <div className="panel error-card">{error}</div>
+  if (!student) return <div className="panel loading-card"><div className="loading-pulse" /><strong>Loading student record…</strong></div>
+  return <><PageHeader eyebrow="Parent view · Read only" title={String(student.name)} description="Attendance, internal marks and fee balance for your student." /><div className="metric-grid"><Metric label="Attendance" value={`${student.attendance}%`} detail="75% threshold" trend={Number(student.attendance) >= 75 ? 'up' : 'down'} icon={<ClipboardCheck />} /><Metric label="Internal marks" value={`${student.internal_marks}/40`} detail="24/40 benchmark" trend={Number(student.internal_marks) >= 24 ? 'up' : 'down'} icon={<BookOpen />} /><Metric label="Fee balance" value={`₹${Number(student.fee_due).toLocaleString('en-IN')}`} detail="Current due" trend={Number(student.fee_due) ? 'down' : 'up'} icon={<CircleDollarSign />} /></div><section className="panel"><h2>Student details</h2><p className="muted">{student.roll} · {student.programme} · Year {student.year}</p></section></>
 }
 
 type AuditEntry = { action: string; entity: string; entity_id: number; created_at: string; actor: string }

@@ -20,7 +20,7 @@ app.get('/api/health', (_request, response) => {
   response.json({ status: 'ok', service: 'asteria-api' })
 })
 
-type AuthUser = { id: number; email: string; name: string; role: 'faculty' | 'office_admin'; campus: string }
+type AuthUser = { id: number; email: string; name: string; role: 'faculty' | 'office_admin' | 'parent'; campus: string; student_id?: number }
 type RequestWithUser = express.Request & { user?: AuthUser }
 
 function auth(request: RequestWithUser, response: express.Response, next: express.NextFunction) {
@@ -45,24 +45,28 @@ const credentialsSchema = z.object({ email: z.string().email(), password: z.stri
 app.post('/api/auth/login', (request, response) => {
   const parsed = credentialsSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Enter a valid email and password.' })
-  const user = db.prepare('SELECT id, email, name, role, campus, password_hash FROM users WHERE email = ?').get(parsed.data.email) as (AuthUser & { password_hash: string }) | undefined
+  const staff = db.prepare('SELECT id, email, name, role, campus, password_hash FROM users WHERE email = ?').get(parsed.data.email) as (AuthUser & { password_hash: string }) | undefined
+  const parent = db.prepare('SELECT id, email, name, student_id, password_hash FROM parent_users WHERE email = ?').get(parsed.data.email) as (AuthUser & { password_hash: string }) | undefined
+  const user = staff ?? (parent ? { ...parent, role: 'parent' as const, campus: 'Engineering College' } : undefined)
   if (!user || !bcrypt.compareSync(parsed.data.password, user.password_hash)) return response.status(401).json({ error: 'Email or password is incorrect.' })
   const { password_hash: _password, ...safeUser } = user
   const token = jwt.sign(safeUser, jwtSecret, { expiresIn: '8h' })
   response.json({ token, user: safeUser })
 })
 
-app.get('/api/students', auth, (request: RequestWithUser, response) => {
+app.get('/api/students', auth, requireRole('faculty', 'office_admin', 'parent'), (request: RequestWithUser, response) => {
   const query = z.object({ search: z.string().max(80).optional() }).safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: 'Invalid search.' })
   const search = query.data.search?.trim()
+  const parentFilter = request.user?.role === 'parent' ? ' AND id = ?' : ''
+  const parentParams = request.user?.role === 'parent' ? [request.user.student_id] : []
   const rows = search
-    ? db.prepare('SELECT * FROM students WHERE name LIKE ? OR roll_no LIKE ? ORDER BY name').all(`%${search}%`, `%${search}%`)
-    : db.prepare('SELECT * FROM students ORDER BY name').all()
+    ? db.prepare(`SELECT * FROM students WHERE (name LIKE ? OR roll_no LIKE ?)${parentFilter} ORDER BY name`).all(`%${search}%`, `%${search}%`, ...parentParams)
+    : db.prepare(`SELECT * FROM students${parentFilter} ORDER BY name`).all(...parentParams)
   response.json({ students: rows })
 })
 
-app.get('/api/dashboard', auth, (_request, response) => {
+app.get('/api/dashboard', auth, requireRole('faculty', 'office_admin'), (_request, response) => {
   const summary = db.prepare(`
     SELECT
       COUNT(*) as students,
@@ -81,7 +85,69 @@ app.get('/api/dashboard', auth, (_request, response) => {
   response.json({ summary, atRisk })
 })
 
-app.get('/api/attendance', auth, (request: RequestWithUser, response) => {
+app.get('/api/modules/admissions', auth, requireRole('office_admin'), (_request, response) => {
+  response.json({ applicants: db.prepare('SELECT * FROM applicants ORDER BY created_at DESC, id DESC').all() })
+})
+
+const applicantSchema = z.object({ applicationNo: z.string().min(3).max(40), name: z.string().min(2).max(100), programme: z.string().min(2).max(100) })
+app.post('/api/modules/admissions', auth, requireRole('office_admin'), (request, response) => {
+  const parsed = applicantSchema.safeParse(request.body)
+  if (!parsed.success) return response.status(400).json({ error: 'Applicant details are invalid.' })
+  try {
+    db.prepare('INSERT INTO applicants (application_no, name, programme, status, documents_complete) VALUES (?, ?, ?, ?, 0)').run(parsed.data.applicationNo, parsed.data.name, parsed.data.programme, 'new')
+    response.status(201).json({ created: true })
+  } catch {
+    response.status(409).json({ error: 'Application number already exists.' })
+  }
+})
+
+app.get('/api/modules/leave', auth, (_request, response) => {
+  response.json({ requests: db.prepare('SELECT * FROM leave_requests ORDER BY from_date DESC').all() })
+})
+
+const leaveSchema = z.object({ staffName: z.string().min(2).max(100), leaveType: z.string().min(2).max(40), fromDate: z.string().date(), toDate: z.string().date(), reason: z.string().min(3).max(240) })
+app.post('/api/modules/leave', auth, (request, response) => {
+  const parsed = leaveSchema.safeParse(request.body)
+  if (!parsed.success) return response.status(400).json({ error: 'Leave request is invalid.' })
+  db.prepare('INSERT INTO leave_requests (staff_name, leave_type, from_date, to_date, reason) VALUES (?, ?, ?, ?, ?)').run(parsed.data.staffName, parsed.data.leaveType, parsed.data.fromDate, parsed.data.toDate, parsed.data.reason)
+  response.status(201).json({ created: true })
+})
+
+app.patch('/api/modules/leave/:id', auth, requireRole('office_admin'), (request, response) => {
+  const status = z.enum(['pending', 'approved', 'rejected']).safeParse(request.body.status)
+  const id = Number(request.params.id)
+  if (!status.success || !Number.isInteger(id)) return response.status(400).json({ error: 'Leave status is invalid.' })
+  const result = db.prepare('UPDATE leave_requests SET status = ? WHERE id = ?').run(status.data, id)
+  if (!result.changes) return response.status(404).json({ error: 'Leave request not found.' })
+  response.json({ updated: true })
+})
+
+app.get('/api/modules/calendar', auth, (_request, response) => {
+  response.json({ events: db.prepare('SELECT * FROM academic_calendar ORDER BY event_date').all() })
+})
+
+app.get('/api/modules/masters', auth, (_request, response) => {
+  response.json({
+    programmes: db.prepare('SELECT * FROM programmes ORDER BY name').all(),
+    subjects: db.prepare('SELECT * FROM subjects ORDER BY programme, semester, name').all(),
+  })
+})
+
+app.get('/api/modules/parent', auth, requireRole('parent'), (request: RequestWithUser, response) => {
+  const student = db.prepare('SELECT roll_no as roll, name, programme, year, attendance, internal_marks, fee_due FROM students WHERE id = ?').get(request.user?.student_id)
+  response.json({ student })
+})
+
+app.get('/api/exports/marks', auth, (request, response) => {
+  const subject = z.string().min(1).max(100).parse(request.query.subject ?? 'Data Structures')
+  response.json({ format: 'university-internal-marks-v1', subject, rows: db.prepare(`SELECT s.roll_no as roll_number, s.name, s.programme, s.year, COALESCE(m.assignment, 0) as assignment_10, COALESCE(m.quiz, 0) as quiz_10, COALESCE(m.mid_sem, 0) as mid_sem_20, COALESCE(m.assignment + m.quiz + m.mid_sem, 0) as total_40 FROM students s LEFT JOIN marks m ON m.student_id = s.id AND m.subject = ? ORDER BY s.roll_no`).all(subject) })
+})
+
+app.get('/api/exports/tally', auth, requireRole('office_admin'), (_request, response) => {
+  response.json({ format: 'tally-fee-dues-v1', rows: db.prepare("SELECT roll_no as student_roll, name as student_name, programme, fee_due as outstanding_amount FROM students WHERE fee_due > 0 ORDER BY roll_no").all() })
+})
+
+app.get('/api/attendance', auth, requireRole('faculty', 'office_admin'), (request: RequestWithUser, response) => {
   const query = z.object({ subject: z.string().min(1).max(100), date: z.string().date() }).safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: 'Subject and a valid date are required.' })
   const rows = db.prepare(`
@@ -97,7 +163,7 @@ const attendanceSchema = z.object({
   date: z.string().date(),
   records: z.array(z.object({ roll: z.string().min(1).max(40), status: z.enum(['present', 'absent', 'late']) })).min(1).max(500),
 })
-app.post('/api/attendance/sync', auth, (request: RequestWithUser, response) => {
+app.post('/api/attendance/sync', auth, requireRole('faculty', 'office_admin'), (request: RequestWithUser, response) => {
   const parsed = attendanceSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Attendance payload is invalid.' })
   const findStudent = db.prepare('SELECT id FROM students WHERE roll_no = ?')
@@ -131,7 +197,7 @@ app.post('/api/attendance/sync', auth, (request: RequestWithUser, response) => {
   }
 })
 
-app.get('/api/marks', auth, (request: RequestWithUser, response) => {
+app.get('/api/marks', auth, requireRole('faculty', 'office_admin'), (request: RequestWithUser, response) => {
   const query = z.object({ subject: z.string().min(1).max(100) }).safeParse(request.query)
   if (!query.success) return response.status(400).json({ error: 'Subject is required.' })
   const rows = db.prepare(`
@@ -178,7 +244,7 @@ app.post('/api/marks/lock', auth, requireRole('office_admin', 'faculty'), (reque
   }
 })
 
-app.get('/api/fees/dues', auth, (_request, response) => {
+app.get('/api/fees/dues', auth, requireRole('faculty', 'office_admin'), (_request, response) => {
   response.json({ dues: db.prepare('SELECT roll_no as roll, name, programme, year, fee_due FROM students WHERE fee_due > 0 ORDER BY fee_due DESC').all() })
 })
 
@@ -217,7 +283,7 @@ app.post('/api/fees/payments', auth, requireRole('office_admin'), (request: Requ
 })
 
 const assistantSchema = z.object({ question: z.string().trim().min(3).max(240) })
-app.post('/api/assistant/ask', auth, (request: RequestWithUser, response) => {
+app.post('/api/assistant/ask', auth, requireRole('faculty', 'office_admin'), (request: RequestWithUser, response) => {
   const parsed = assistantSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Ask a question with at least three characters.' })
 

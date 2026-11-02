@@ -97,11 +97,21 @@ app.post('/api/attendance/sync', auth, (request: RequestWithUser, response) => {
     INSERT INTO attendance (student_id, subject, class_date, status, marked_by) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(student_id, subject, class_date) DO UPDATE SET status = excluded.status, marked_by = excluded.marked_by
   `)
+  const recalculateAttendance = db.prepare(`
+    UPDATE students
+    SET attendance = (
+      SELECT ROUND(100.0 * SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) / COUNT(*), 1)
+      FROM attendance
+      WHERE student_id = ?
+    )
+    WHERE id = ?
+  `)
   const transaction = db.transaction(() => {
     for (const record of parsed.data.records) {
       const student = findStudent.get(record.roll) as { id: number } | undefined
       if (!student) throw new Error(`Unknown student roll number: ${record.roll}`)
       save.run(student.id, parsed.data.subject, parsed.data.date, record.status, request.user!.id)
+      recalculateAttendance.run(student.id, student.id)
       db.prepare('INSERT INTO audit_log (actor_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').run(request.user!.id, 'attendance.synced', 'attendance', student.id)
     }
   })

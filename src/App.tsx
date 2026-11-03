@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -25,7 +25,6 @@ import {
   Upload,
 } from 'lucide-react'
 import './App.css'
-import { isAtRisk } from './risk'
 
 type View = 'overview' | 'attendance' | 'marks' | 'fees' | 'students' | 'audit' | 'admissions' | 'parent' | 'leave' | 'calendar' | 'masters' | 'exports'
 type AttendanceStatus = 'present' | 'absent' | 'late'
@@ -37,6 +36,12 @@ type DashboardData = {
 }
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
 const ATTENDANCE_QUEUE_KEY = 'asteria:attendance-queue'
+
+function getLocalDate() {
+  const now = new Date()
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+  return localTime.toISOString().slice(0, 10)
+}
 
 async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -156,14 +161,13 @@ function App() {
   const [view, setView] = useState<View>('overview')
   const [mobileNav, setMobileNav] = useState(false)
   const [attendance, setAttendance] = useState(initialAttendance)
+  const [attendanceDate, setAttendanceDate] = useState(getLocalDate)
   const [saved, setSaved] = useState(false)
   const [syncError, setSyncError] = useState('')
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<Array<{ roll_no: string; name: string; programme: string }>>([])
   const [apiStatus, setApiStatus] = useState<ApiStatus>('checking')
-
-  const atRisk = useMemo(() => students.filter(isAtRisk), [])
 
   useEffect(() => {
     if (!token) return
@@ -217,7 +221,7 @@ function App() {
   function saveAttendance() {
     setSaved(false)
     setSyncError('')
-    const body = JSON.stringify({ subject: 'Data Structures', date: '2025-02-03', records: Object.entries(attendance).map(([roll, status]) => ({ roll, status })) })
+    const body = JSON.stringify({ subject: 'Data Structures', date: attendanceDate, records: Object.entries(attendance).map(([roll, status]) => ({ roll, status })) })
     localStorage.setItem(ATTENDANCE_QUEUE_KEY, body)
     if (!navigator.onLine) {
       setSaved(true)
@@ -259,8 +263,8 @@ function App() {
       <main className="main-content">
         <header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMobileNav(true)}><Menu size={21} /></button><div className="breadcrumb"><span>Engineering College</span><span>/</span><strong>{[...navItems, ...moduleItems, { id: 'students' as View, label: 'Students', icon: Users }, { id: 'audit' as View, label: 'Audit trail', icon: ShieldCheck }, { id: 'parent' as View, label: 'My student', icon: Users }].find((item) => item.id === view)?.label}</strong></div><div className="top-actions"><span className={`api-status ${apiStatus}`}><span className="api-status-dot" />{apiStatus === 'checking' ? 'Checking connection' : apiStatus === 'online' ? 'System online' : 'Offline mode'}</span><div className="search-wrap"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => { const value = event.target.value; setSearch(value); if (value.trim().length < 2) setSearchResults([]) }} placeholder="Search students..." aria-label="Search students" /></div>{searchResults.length > 0 && <div className="search-results">{searchResults.map((student) => <button key={student.roll_no} onClick={() => { setSearch(''); setSearchResults([]); setView('students') }}><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no} · {student.programme}</small></span></button>)}</div>}</div>        {currentUser.role === 'office_admin' && <button className="icon-button" onClick={() => setView('audit')} title="Open audit notifications"><AlertTriangle size={19} /><span className="notification-dot" /></button>}<button className="icon-button" onClick={() => { setSignedIn(false); setCurrentUser(null); setToken(''); setApiStatus('checking') }} title="Sign out"><LogOut size={18} /></button></div></header>
         <div className="page-content">
-          {view === 'overview' && <LiveOverview token={token} fallbackAtRisk={atRisk} onNavigate={setView} />}
-          {view === 'attendance' && <LiveAttendance token={token} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
+          {view === 'overview' && <LiveOverview token={token} onNavigate={setView} />}
+          {view === 'attendance' && <LiveAttendance token={token} date={attendanceDate} onDateChange={(date) => { setAttendanceDate(date); setSaved(false); setSyncError('') }} attendance={attendance} onLoad={setAttendance} onMark={markAttendance} saved={saved} syncError={syncError} onSave={saveAttendance} />}
           {view === 'marks' && <LiveMarks token={token} />}
           {view === 'fees' && <LiveFees token={token} canRecordPayments={currentUser.role === 'office_admin'} />}
           {view === 'students' && <LiveStudents token={token} />}
@@ -282,7 +286,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
   return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="muted">{description}</p></div>{action}</div>
 }
 
-function LiveOverview({ token, fallbackAtRisk, onNavigate }: { token: string; fallbackAtRisk: typeof students; onNavigate: (view: View) => void }) {
+function LiveOverview({ token, onNavigate }: { token: string; onNavigate: (view: View) => void }) {
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState('')
 
@@ -294,7 +298,7 @@ function LiveOverview({ token, fallbackAtRisk, onNavigate }: { token: string; fa
 
   if (error) return <div className="panel error-card"><AlertTriangle size={18} /><div><strong>Dashboard unavailable</strong><span>{error}</span></div><button className="secondary-button" onClick={() => window.location.reload()}>Retry</button></div>
   if (!data) return <div className="panel loading-card"><div className="loading-pulse" /><strong>Loading campus overview…</strong><span>Refreshing today’s academic signals.</span></div>
-  return <Overview atRisk={data.atRisk.length ? data.atRisk : fallbackAtRisk} onNavigate={onNavigate} summary={data.summary} />
+  return <Overview atRisk={data.atRisk} onNavigate={onNavigate} summary={data.summary} />
 }
 
 function Overview({ atRisk, onNavigate, summary }: { atRisk: Array<{ roll: string; name: string; programme: string; year: number; attendance: number; marks: number; dues: number }>; onNavigate: (view: View) => void; summary: DashboardData['summary'] }) {
@@ -318,12 +322,12 @@ function StudentTable() {
   return <div className="table-wrap"><table><thead><tr><th>Student</th><th>Programme</th><th>Attendance</th><th>Internal marks</th><th>Fee due</th><th /></tr></thead><tbody>{students.map((student) => <tr key={student.roll}><td><div className="table-student"><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll}</small></span></div></td><td>{student.programme}<small>Year {student.year}</small></td><td><span className={student.attendance < 75 ? 'table-risk' : ''}>{student.attendance}%</span></td><td>{student.marks}/40</td><td><span className={student.dues ? 'table-risk' : 'paid'}>{student.dues ? `₹${student.dues.toLocaleString('en-IN')}` : 'Paid'}</span></td><td><button className="row-action"><MoreHorizontal size={17} /></button></td></tr>)}</tbody></table></div>
 }
 
-function LiveAttendance({ token, attendance, onLoad, onMark, saved, syncError, onSave }: { token: string; attendance: Record<string, AttendanceStatus>; onLoad: (attendance: Record<string, AttendanceStatus>) => void; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {
+function LiveAttendance({ token, date, onDateChange, attendance, onLoad, onMark, saved, syncError, onSave }: { token: string; date: string; onDateChange: (date: string) => void; attendance: Record<string, AttendanceStatus>; onLoad: (attendance: Record<string, AttendanceStatus>) => void; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    apiRequest<{ attendance: Array<{ roll: string; status: AttendanceStatus | null }> }>('/attendance?subject=Data%20Structures&date=2025-02-03', {}, token)
+    apiRequest<{ attendance: Array<{ roll: string; status: AttendanceStatus | null }> }>(`/attendance?subject=Data%20Structures&date=${encodeURIComponent(date)}`, {}, token)
       .then((result) => {
         const next = { ...initialAttendance }
         for (const record of result.attendance) if (record.status) next[record.roll] = record.status
@@ -331,10 +335,10 @@ function LiveAttendance({ token, attendance, onLoad, onMark, saved, syncError, o
       })
       .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : 'Latest attendance could not be loaded.'))
       .finally(() => setLoading(false))
-  }, [token, onLoad])
+  }, [token, date, onLoad])
 
   if (loading) return <div className="panel loading-card"><div className="loading-pulse" /><strong>Loading the class register…</strong><span>Checking the latest synced attendance.</span></div>
-  return <Attendance attendance={attendance} onMark={onMark} saved={saved} syncError={loadError || syncError} onSave={onSave} />
+  return <Attendance date={date} onDateChange={onDateChange} attendance={attendance} onMark={onMark} saved={saved} syncError={loadError || syncError} onSave={onSave} />
 }
 
 type DirectoryStudent = { id: number; roll_no: string; name: string; programme: string; year: number; attendance: number; internal_marks: number; fee_due: number }
@@ -359,8 +363,9 @@ function LiveStudents({ token }: { token: string }) {
   return <><PageHeader eyebrow="Directory · Engineering College" title="Students" description="Searchable student records for the current campus" action={<button className="secondary-button" onClick={exportList}><FileText size={17} /> Export list</button>} /><section className="panel students-panel"><div className="directory-toolbar"><div><p className="eyebrow">Campus directory</p><h2>{records.length} students in sample data</h2></div><div className="search-box directory-search"><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter this list..." aria-label="Filter student directory" /></div></div>{error && <div className="form-error"><AlertTriangle size={15} /> {error}</div>}{loading ? <div className="empty-note">Loading students…</div> : <div className="table-wrap directory-table"><table><thead><tr><th>Student</th><th>Programme</th><th>Year</th><th>Attendance</th><th>Internal marks</th><th>Fee due</th></tr></thead><tbody>{filtered.map((student) => <tr key={student.roll_no}><td><div className="table-student"><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><span><strong>{student.name}</strong><small>{student.roll_no}</small></span></div></td><td>{student.programme}</td><td>{student.year}</td><td><span className={student.attendance < 75 ? 'table-risk' : ''}>{student.attendance}%</span></td><td><span className={student.internal_marks < 24 ? 'table-risk' : ''}>{student.internal_marks}/40</span></td><td><span className={student.fee_due ? 'table-risk' : 'paid'}>{student.fee_due ? `₹${student.fee_due.toLocaleString('en-IN')}` : 'Paid'}</span></td></tr>)}</tbody></table></div>}{!loading && filtered.length === 0 && <div className="empty-note">No students match “{filter}”.</div>}</section></>
 }
 
-function Attendance({ attendance, onMark, saved, syncError, onSave }: { attendance: Record<string, AttendanceStatus>; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {
-  return <><PageHeader eyebrow="Attendance · Period 1" title="Data Structures" description="B.Tech CSE · Year 2 · 03 February 2025 · Room 204" action={<div className="offline-status"><span className="online-dot" /> Offline ready</div>} />
+function Attendance({ date, onDateChange, attendance, onMark, saved, syncError, onSave }: { date: string; onDateChange: (date: string) => void; attendance: Record<string, AttendanceStatus>; onMark: (roll: string, status: AttendanceStatus) => void; saved: boolean; syncError: string; onSave: () => void }) {
+  const displayDate = new Intl.DateTimeFormat('en-IN', { dateStyle: 'long' }).format(new Date(`${date}T00:00:00`))
+  return <><PageHeader eyebrow="Attendance · Period 1" title="Data Structures" description={`B.Tech CSE · Year 2 · ${displayDate} · Room 204`} action={<label className="date-picker">Class date<input type="date" value={date} onChange={(event) => onDateChange(event.target.value)} /></label>} />
     <div className="attendance-toolbar"><div><strong>24 students</strong><span>{saved ? 'Synced just now' : 'Changes are held locally until saved'}</span></div><div className="toolbar-actions"><button className="secondary-button"><Search size={16} /> Find student</button><button className="secondary-button"><MoreHorizontal size={17} /></button></div></div>
     <section className="panel attendance-panel"><div className="attendance-summary"><div><p className="eyebrow">Quick mark</p><h2>Tap a status for each student</h2></div><div className="attendance-counts"><span><i className="present-dot" /> Present <strong>{Object.values(attendance).filter((value) => value === 'present').length}</strong></span><span><i className="absent-dot" /> Absent <strong>{Object.values(attendance).filter((value) => value === 'absent').length}</strong></span><span><i className="late-dot" /> Late <strong>{Object.values(attendance).filter((value) => value === 'late').length}</strong></span></div></div><div className="attendance-list">{students.map((student, index) => <div className="attendance-row" key={student.roll}><span className="student-index">{String(index + 1).padStart(2, '0')}</span><span className="avatar avatar-small">{student.name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span><div className="student-copy"><strong>{student.name}</strong><small>{student.roll}</small></div><span className={`attendance-warning ${student.attendance < 75 ? '' : 'hidden'}`}><AlertTriangle size={15} /> Below 75%</span><div className="status-toggle">{(['present', 'absent', 'late'] as AttendanceStatus[]).map((status) => <button key={status} className={`${status} ${attendance[student.roll] === status ? 'selected' : ''}`} onClick={() => onMark(student.roll, status)}>{attendance[student.roll] === status && <Check size={14} />}{status}</button>)}</div></div>)}</div><div className="attendance-footer"><span>{syncError ? <><AlertTriangle size={16} /> {syncError}</> : <><ShieldCheck size={16} /> Changes are saved on this device when offline.</>}</span><button className="primary-button" onClick={onSave}>{saved ? 'Saved for sync' : 'Save attendance'} <Check size={16} /></button></div></section>
   </>

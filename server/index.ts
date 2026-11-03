@@ -12,8 +12,18 @@ if (process.env.NODE_ENV === 'production' && !configuredJwtSecret) {
   throw new Error('JWT_SECRET must be configured in production.')
 }
 const jwtSecret = configuredJwtSecret ?? 'development-only-secret-change-me'
+const configuredClientOrigin = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173'
+const allowedClientOrigins = new Set([
+  configuredClientOrigin,
+  ...(process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173']),
+])
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173' }))
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedClientOrigins.has(origin)) return callback(null, true)
+    return callback(new Error('Origin is not allowed.'))
+  },
+}))
 app.use(express.json({ limit: '100kb' }))
 
 app.get('/api/health', (_request, response) => {
@@ -82,7 +92,13 @@ app.get('/api/dashboard', auth, requireRole('faculty', 'office_admin'), (_reques
     WHERE attendance < 75 OR internal_marks < 24
     ORDER BY attendance ASC, internal_marks ASC
   `).all()
-  response.json({ summary, atRisk })
+  const students = db.prepare(`
+    SELECT roll_no as roll, name, programme, year, attendance, internal_marks as marks, fee_due as dues
+    FROM students
+    ORDER BY name
+    LIMIT 6
+  `).all()
+  response.json({ summary, atRisk, students })
 })
 
 app.get('/api/modules/admissions', auth, requireRole('office_admin'), (_request, response) => {
@@ -114,7 +130,7 @@ app.get('/api/modules/leave', auth, requireRole('faculty', 'office_admin'), (_re
   response.json({ requests: db.prepare('SELECT * FROM leave_requests ORDER BY from_date DESC').all() })
 })
 
-const leaveSchema = z.object({ staffName: z.string().min(2).max(100), leaveType: z.string().min(2).max(40), fromDate: z.string().date(), toDate: z.string().date(), reason: z.string().min(3).max(240) })
+const leaveSchema = z.object({ staffName: z.string().trim().min(2).max(100), leaveType: z.string().trim().min(2).max(40), fromDate: z.string().date(), toDate: z.string().date(), reason: z.string().trim().min(3).max(240) }).refine((value) => value.fromDate <= value.toDate, { message: 'Leave end date must be on or after the start date.' })
 app.post('/api/modules/leave', auth, requireRole('faculty', 'office_admin'), (request, response) => {
   const parsed = leaveSchema.safeParse(request.body)
   if (!parsed.success) return response.status(400).json({ error: 'Leave request is invalid.' })
@@ -242,6 +258,7 @@ app.post('/api/marks/lock', auth, requireRole('office_admin', 'faculty'), (reque
       const locked = existing.get(student.id, parsed.data.subject) as { locked_at: string | null } | undefined
       if (locked?.locked_at) throw new Error('Some marks are already locked and cannot be changed.')
       save.run(student.id, parsed.data.subject, record.assignment, record.quiz, record.midSem, request.user!.id)
+      db.prepare('UPDATE students SET internal_marks = ? WHERE id = ?').run(record.assignment + record.quiz + record.midSem, student.id)
       db.prepare('INSERT INTO audit_log (actor_id, action, entity, entity_id) VALUES (?, ?, ?, ?)').run(request.user!.id, 'marks.locked', 'marks', student.id)
     }
   })

@@ -6,8 +6,8 @@ Requirements: Node.js 20+ and npm 10+.
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/KrutikaBorase/Isocode.git
-   cd Isocode
+   git clone https://github.com/KrutikaBorase/Isocode_.git
+   cd Isocode_
    ```
 2. Install dependencies:
    ```bash

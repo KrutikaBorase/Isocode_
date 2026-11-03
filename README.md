@@ -1,32 +1,36 @@
-# React + TypeScript + Vite
+# Asteria campus operations
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Asteria is a focused academic operations workspace for one Company A campus. It brings the core daily workflows into one calm interface:
 
-Currently, two official plugins are available:
+- faculty and office-admin sign-in with role-protected API routes
+- live student dashboard and directory
+- mobile-first attendance with offline queueing and reconnect sync
+- component-level internal marks with moderation lock and audit events
+- fee dues, test-mode receipts, and Tally-shaped export
+- explainable at-risk flags and a read-only campus assistant
+- seeded admissions, leave, calendar, masters, parent, audit, and export modules
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The app uses React, TypeScript, Vite, Express, SQLite, JWT, bcrypt, and Zod. All sample records and demo credentials are synthetic.
 
-## React Compiler
+## Run locally
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+See [deployment.md](./deployment.md) for setup, environment variable names, demo accounts, and known prototype boundaries.
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run api
+# in a second terminal
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Open `http://localhost:5173`.
+
+## Validate
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+The submission design decisions, data model, workflow notes, and assumptions are in [TDD.docx](./TDD.docx).

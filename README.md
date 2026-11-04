@@ -1,31 +1,66 @@
-# Asteria campus operations
+# Asteria — Campus Operations Workspace
 
-Asteria is a focused academic operations workspace for one Company A campus. It brings the core daily workflows into one calm interface:
+Asteria is an academic operations workspace designed for a single campus. It brings essential academic and administrative workflows together in one interface.
 
-- faculty and office-admin sign-in with role-protected API routes
-- live student dashboard and directory
-- mobile-first attendance with offline queueing and reconnect sync
-- component-level internal marks with moderation lock and audit events
-- fee dues, test-mode receipts, and Tally-shaped export
-- explainable at-risk flags and a read-only campus assistant
-- seeded admissions, leave, calendar, masters, parent, audit, and export modules
+### Key Features
 
-The app uses React, TypeScript, Vite, Express, SQLite, JWT, bcrypt, and Zod. All sample records and demo credentials are synthetic.
+- Role-based sign-in for faculty and office administrators
+- Student dashboard and directory
+- Attendance management with offline queueing and reconnect sync
+- Internal marks management with moderation lock and audit events
+- Fee dues, test-mode receipts, and Tally-shaped exports
+- Explainable at-risk student flags
+- Read-only campus assistant
+- Admissions, leave management, calendar, master data, parent access, audit trail, and exports
 
-## Run locally
+### Tech Stack
 
-See [deployment.md](./deployment.md) for setup, environment variable names, demo accounts, and known prototype boundaries.
+React 19, TypeScript, Vite, Express 5, SQLite, JWT, bcrypt, and Zod.
+
+All sample records and demo credentials are synthetic and intended for demonstration purposes.
+
+### Live Demo
+
+- **Application:** https://isocode-green.vercel.app/
+- **Backend API:** https://isocode-1.onrender.com
+- **API Health Check:** https://isocode-1.onrender.com/api/health
+
+### Run Locally
+
+**Prerequisites:** Node.js 20 or later and npm.
+
+1. Clone the repository:
 
 ```bash
-npm install
+git clone https://github.com/KrutikaBorase/Isocode_.git
+cd Isocode_
+```
+
+2. Install dependencies:
+
+```bash
+npm ci
+```
+
+3. Start the backend API:
+
+```bash
 npm run api
-# in a second terminal
+```
+
+4. Open a second terminal and start the frontend:
+
+```bash
 npm run dev
 ```
 
-Open `http://localhost:5173`.
+5. Open http://localhost:5173 in your browser.
 
-## Validate
+See [deployment.md](./deployment.md) for environment variables, demo accounts, deployment instructions, and known prototype limitations.
+
+### Validation
+
+Run the following commands:
 
 ```bash
 npm test
@@ -33,4 +68,11 @@ npm run lint
 npm run build
 ```
 
-The submission design decisions, data model, workflow notes, and assumptions are in [TDD.docx](./TDD.docx).
+### Technical Documentation
+
+For the system architecture, design decisions, data model, API design, workflows, assumptions, and limitations, see the [Technical Design Document](./TDD.docx).
+
+---
+
+**Project:** Asteria  
+**Repository:** https://github.com/KrutikaBorase/Isocode_
